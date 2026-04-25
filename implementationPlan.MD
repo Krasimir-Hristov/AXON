@@ -4,7 +4,7 @@
 
 ## PRE-STEP — Update Instructions File
 
-- [ ] Add `## Error Handling` section to `.github/instructions/nextjs.instructions.md` — every `fetch()` in try/catch + check `response.ok` before `.json()`
+- [x] Add `## Error Handling` section to `.github/instructions/nextjs.instructions.md` — every `fetch()` in try/catch + check `response.ok` before `.json()`
 
 ---
 
@@ -12,17 +12,17 @@
 
 ### 0A — Backend (uv)
 
-- [ ] `cd backend && uv init --app`
-- [ ] `uv add "fastapi[standard]" langgraph langchain-core langchain-openai supabase httpx presidio-analyzer presidio-anonymizer pydantic-settings "python-jose[cryptography]" cryptography slowapi`
-- [ ] `uv run python -m spacy download en_core_web_sm`
-- [ ] Create `backend/.env` + `backend/.env.example` with all required keys
+- [x] `cd backend && uv init --app`
+- [x] `uv add "fastapi[standard]" langgraph langchain-core langchain-openai supabase httpx presidio-analyzer presidio-anonymizer pydantic-settings "python-jose[cryptography]" cryptography slowapi`
+- [x] `uv run python -m spacy download en_core_web_sm`
+- [x] Create `backend/.env` + `backend/.env.example` with all required keys
 - [ ] Verify: `uv run uvicorn app.main:app --reload` → `http://localhost:8000/docs` loads
 
 ### 0B — Frontend (pnpm)
 
-- [ ] `cd frontend && npx create-next-app@latest . --typescript --tailwind --app --turbopack`
-- [ ] `pnpm add @supabase/supabase-js @supabase/ssr @tanstack/react-query zod react-markdown remark-gfm eventsource-parser`
-- [ ] `pnpm dlx shadcn@latest init`
+- [x] `cd frontend && npx create-next-app@latest . --typescript --tailwind --app --turbopack`
+- [x] `pnpm add @supabase/supabase-js @supabase/ssr @tanstack/react-query zod react-markdown remark-gfm eventsource-parser`
+- [ ] `pnpm dlx shadcn@latest init` (postponed — add components as needed)
 - [ ] Verify: `pnpm dev` → `http://localhost:3000` loads
 
 ### 0C — Supabase (manual)
@@ -33,7 +33,8 @@
 - [ ] Enable `pgvector` extension
 - [ ] Add HNSW index on `memory_entries.embedding`
 - [ ] Enable RLS policies on all tables
-- [ ] Fill `.env` files for both backend and frontend
+- [x] Create `.env.example` files for backend and frontend
+- [ ] Fill actual `.env` files with Supabase + API keys
 
 ---
 
