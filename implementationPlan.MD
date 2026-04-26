@@ -22,8 +22,8 @@
 
 - [x] `cd frontend && npx create-next-app@latest . --typescript --tailwind --app --turbopack`
 - [x] `pnpm add @supabase/supabase-js @supabase/ssr @tanstack/react-query zod react-markdown remark-gfm eventsource-parser`
-- [ ] `pnpm dlx shadcn@latest init` (postponed — add components as needed)
-- [ ] Verify: `pnpm dev` → `http://localhost:3000` loads
+- [x] `pnpm dlx shadcn@latest init` + manual install of `tw-animate-css class-variance-authority clsx tailwind-merge lucide-react` + `lib/utils.ts` created
+- [x] Verify: `pnpm dev` → `http://localhost:3000` loads ✅ (Next.js 16.2.4 + Turbopack, Ready in 5.3s)
 
 ### 0C — Supabase (manual)
 
