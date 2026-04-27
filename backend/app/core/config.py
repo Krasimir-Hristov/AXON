@@ -10,6 +10,10 @@ class Settings(BaseSettings):
 
     # OpenRouter
     openrouter_api_key: str
+    # Base URL — has a default so it does not need to appear in .env unless overriding
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # Default model used by the orchestrator (Phase 3+). Override via LLM_MODEL in .env.
+    llm_model: str = "anthropic/claude-3.5-sonnet"
 
     # JWT — must match Supabase Dashboard → Settings → API → JWT Secret
     jwt_secret_key: str
