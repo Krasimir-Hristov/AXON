@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.features.auth.router import router as auth_router
+from app.features.models.router import router as models_router
 
 logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger(__name__)
@@ -42,5 +43,7 @@ app.add_middleware(
 
 # Mount routers.
 # Final paths = middleware prefix + router prefix:
-#   /api/v1 + /auth + /me  →  GET /api/v1/auth/me
+#   /api/v1 + /auth + /me     →  GET /api/v1/auth/me
+#   /api/v1 + /models + ""   →  GET /api/v1/models
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(models_router, prefix="/api/v1")
