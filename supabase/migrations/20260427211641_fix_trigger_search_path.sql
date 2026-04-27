@@ -1,0 +1,3 @@
+-- Trigger function recreated with SET search_path = public.
+-- This fix is already incorporated into 20260427211521_create_core_tables.sql.
+-- Stub kept to maintain parity with the applied migration history in Supabase.

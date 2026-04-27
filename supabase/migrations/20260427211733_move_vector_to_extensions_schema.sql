@@ -1,0 +1,6 @@
+-- Moved pgvector extension from public schema to extensions schema
+-- (resolves extension_in_public security advisory).
+-- memory_entries table, indexes, RLS policies and match_memories RPC
+-- were recreated with extensions.vector(1536) type.
+-- All changes are already incorporated in the canonical migration files above.
+-- Stub kept to maintain parity with the applied migration history in Supabase.

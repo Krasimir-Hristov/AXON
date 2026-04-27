@@ -1,0 +1,4 @@
+-- All RLS policies updated to use (select auth.uid()) instead of auth.uid()
+-- to avoid per-row re-evaluation (auth_rls_initplan performance warning).
+-- This fix is already incorporated into 20260427211545_enable_rls_and_policies.sql.
+-- Stub kept to maintain parity with the applied migration history in Supabase.

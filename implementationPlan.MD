@@ -29,12 +29,12 @@
 
 - [ ] Create Supabase project → copy URL + anon key + service role key
 - [ ] Enable Google OAuth → add Google Cloud OAuth2 credentials
-- [ ] Run DB schema SQL: `conversations`, `messages`, `memory_entries` tables
-- [ ] Enable `pgvector` extension
-- [ ] Add HNSW index on `memory_entries.embedding`
-- [ ] Enable RLS policies on all tables
+- [x] Run DB schema SQL: `conversations`, `messages`, `memory_entries` tables
+- [x] Enable `pgvector` extension
+- [x] Add HNSW index on `memory_entries.embedding`
+- [x] Enable RLS policies on all tables
 - [x] Create `.env.example` files for backend and frontend
-- [ ] Fill actual `.env` files with Supabase + API keys
+- [x] Fill actual `.env` files with Supabase + API keys
 
 ---
 
