@@ -56,7 +56,7 @@
 - [x] `app/features/models/service.py` — TTL cache + `_fetch_models_from_openrouter()` + `get_models()`
 - [x] `app/features/models/router.py` — `GET /api/v1/models` (public, no auth)
 - [x] Mount models router in `main.py`
-- [ ] **Verify /docs:** `GET /api/v1/models` → 200 JSON list
+- [x] **Verify /docs:** `GET /api/v1/models` → 200 JSON list
 
 ---
 
