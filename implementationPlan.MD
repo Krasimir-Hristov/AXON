@@ -40,13 +40,13 @@
 
 ## PHASE 1 — Backend Core Infrastructure
 
-- [ ] `app/main.py` — FastAPI app, CORS (`localhost:3000`), lifespan event
-- [ ] `app/core/config.py` — `Settings(BaseSettings)` reads all env vars
-- [ ] `app/core/security.py` — `get_current_user(token: HTTPBearer)` validates Supabase JWT, returns `UserSchema`
-- [ ] `app/features/auth/schemas.py` — `UserSchema(id, email)`
-- [ ] `app/features/auth/router.py` — `GET /api/v1/auth/me` (protected)
-- [ ] Mount auth router in `main.py`
-- [ ] **Verify /docs:** `GET /api/v1/auth/me` → 401 without token, 200 with valid JWT
+- [x] `app/main.py` — FastAPI app, CORS (`localhost:3000`), lifespan event
+- [x] `app/core/config.py` — `Settings(BaseSettings)` reads all env vars
+- [x] `app/core/security.py` — `get_current_user(token: HTTPBearer)` validates Supabase JWT, returns `UserSchema`
+- [x] `app/features/auth/schemas.py` — `UserSchema(id, email)`
+- [x] `app/features/auth/router.py` — `GET /api/v1/auth/me` (protected)
+- [x] Mount auth router in `main.py`
+- [x] **Verify /docs:** `GET /api/v1/auth/me` → 401 without token, 200 with valid JWT
 
 ---
 

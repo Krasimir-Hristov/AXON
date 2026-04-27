@@ -1,0 +1,227 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit configuration for AXON — AI Personal Assistant
+# Stack: Next.js 16 (frontend) + FastAPI + LangGraph (backend) + Supabase + pgvector
+
+language: 'en-US'
+
+reviews:
+  profile: 'assertive'
+  request_changes_workflow: true
+  high_level_summary: true
+  review_status: true
+  poem: false
+  collapse_walkthrough: false
+  estimate_code_review_effort: true
+  suggested_reviewers: true
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - 'WIP'
+      - '[skip review]'
+      - 'chore:'
+
+  # Ignore generated/lock files — never review these
+  path_filters:
+    - '!**/node_modules/**'
+    - '!**/.venv/**'
+    - '!**/pnpm-lock.yaml'
+    - '!**/uv.lock'
+    - '!**/*.pyc'
+    - '!**/__pycache__/**'
+    - '!**/.next/**'
+    - '!**/dist/**'
+    - '!**/build/**'
+    - '!**/*.min.js'
+    - '!**/public/**'
+
+  tools:
+    # Python linting — uses pyproject.toml config
+    ruff:
+      enabled: true
+      config_file: 'backend/pyproject.toml'
+    # Secret detection — critical for a project with API keys + JWT secrets
+    gitleaks:
+      enabled: true
+    # TypeScript/JavaScript linting
+    eslint:
+      enabled: true
+    # AST-based security rules (OWASP patterns)
+    ast-grep:
+      essential_rules: true
+
+  path_instructions:
+    # ── Backend: all Python files ─────────────────────────────────────────────
+    - path: 'backend/**/*.py'
+      instructions: |
+        Review against AXON Python backend rules:
+        - Every .py file must start with a one-line module docstring.
+        - Every function parameter and return type must have type annotations. Never use `Any` without a comment explaining why.
+        - All I/O (DB, HTTP, file) must be async. Never use synchronous I/O.
+        - Use `httpx.AsyncClient` for all HTTP calls — never the `requests` library.
+        - All data structures must use Pydantic v2 `BaseModel`. Never use plain dicts for structured data.
+        - No file longer than 300 lines — flag files approaching this limit.
+        - All external calls (Supabase, OpenRouter, Presidio) must be wrapped in try/except with logging.
+        - Never hardcode secrets, URLs, or model names — all must come from `settings` (pydantic-settings).
+        - OWASP: Validate all user input at system boundaries with Pydantic. Never trust raw request data.
+        - OWASP: Never derive user identity from request body — always use `Depends(get_current_user)`.
+        - OWASP: Never log tokens, passwords, or PII (names, emails, phone numbers).
+
+    # ── Backend: FastAPI routers ──────────────────────────────────────────────
+    - path: 'backend/app/features/**/router.py'
+      instructions: |
+        FastAPI router-specific checks:
+        - Every protected endpoint must declare `current_user: UserSchema = Depends(get_current_user)`.
+        - Never trust a `user_id` from the request body — always use `current_user.id` from the validated JWT.
+        - Every endpoint must declare `response_model=` for proper schema generation.
+        - Prefix must be set at the router level (`APIRouter(prefix=...)`), not duplicated in individual routes.
+        - HTTP methods: GET for reads, POST for creates, DELETE for deletes, PATCH for partial updates.
+
+    # ── Backend: Pydantic schemas ─────────────────────────────────────────────
+    - path: 'backend/app/features/**/schemas.py'
+      instructions: |
+        Pydantic v2 schema checks:
+        - All string fields with user input must have `Field(..., min_length=1, max_length=N)` constraints.
+        - Never use `model_config = ConfigDict(arbitrary_types_allowed=True)` without justification.
+        - Use `model_validator` for cross-field validation — not custom `__init__`.
+        - No `Any` types.
+
+    # ── Backend: security.py (JWT validation) ────────────────────────────────
+    - path: 'backend/app/core/security.py'
+      instructions: |
+        Security-critical file — apply strict review:
+        - JWT must be validated with `verify_aud: False` only if Supabase confirmed it doesn't use `aud`.
+        - Always catch `JWTError` specifically — never a bare `except Exception`.
+        - Log validation failures at WARNING level (not DEBUG, not ERROR).
+        - Never return the raw JWT payload to the caller — always return a typed schema.
+        - `HTTPException` must include `WWW-Authenticate: Bearer` header on 401 responses.
+
+    # ── Backend: LangGraph agents ─────────────────────────────────────────────
+    - path: 'backend/app/agents/**/*.py'
+      instructions: |
+        LangGraph agent checks:
+        - All graph nodes must be async and return a partial state dict (not the full AxonState).
+        - Always import AxonState from `app.agents.state` — never redefine state locally.
+        - The same `tools` list must be passed to both `model.bind_tools(tools)` AND `ToolNode(tools)`.
+        - Conditional edge functions must handle the `END` case explicitly.
+        - Use `graph.astream_events(version="v2")` for SSE streaming — not `.ainvoke()`.
+        - Never hardcode model names — use `settings.llm_model` from config.
+
+    # ── Backend: LangChain tools ──────────────────────────────────────────────
+    - path: 'backend/app/features/**/tool.py'
+      instructions: |
+        LangChain tool checks:
+        - Tools must use `@tool` decorator from `langchain_core.tools`.
+        - Every tool must have a docstring — it becomes the LLM's tool description.
+        - All parameters must be type-annotated — they become the tool's JSON schema.
+        - Prefer `async def` for tools that do I/O (DB, HTTP).
+        - One tool per file — never define multiple `@tool` functions in one file.
+        - Never call `mask_pii()` inside a tool — PII masking happens before storing, not during retrieval.
+
+    # ── Backend: database access ──────────────────────────────────────────────
+    - path: 'backend/app/db/**/*.py'
+      instructions: |
+        Database access checks:
+        - Every query MUST filter by `user_id` — never return data for all users.
+        - Never instantiate Supabase client directly — always use `get_supabase_client()` from `app.db.supabase`.
+        - Use the `match_memories` RPC for vector similarity search — never raw `<=>` queries.
+        - Batch inserts where possible — never loop single inserts.
+        - AES-256 encryption must be applied before storing `content_encrypted`. Never store plaintext originals.
+
+    # ── Backend: privacy / PII ────────────────────────────────────────────────
+    - path: 'backend/app/core/privacy.py'
+      instructions: |
+        PII masking checks:
+        - `mask_pii()` must be called before ANY text is sent to OpenRouter or stored as embeddings.
+        - The masked output must NEVER contain the original PII — verify the Presidio anonymizer is configured.
+        - Never log the original unmasked text.
+
+    # ── Frontend: all TypeScript/TSX files ────────────────────────────────────
+    - path: 'frontend/**/*.{ts,tsx}'
+      instructions: |
+        Review against AXON Next.js 16 frontend rules:
+        - Never use `type: any` — use proper types or `unknown` with type guards.
+        - Arrow functions for all React components (`const Foo = () => ...`). Regular `function` only for Server Actions and utilities.
+        - `'use client'` directive required at the top of every interactive component file.
+        - Pages in `app/` must ONLY import from `features/` — no business logic in page files.
+        - `@tanstack/react-query` for all server state — never `useState` for data fetched from the API.
+        - `zod` for all user input validation — no raw form values without a schema.
+        - Every `fetch()` must be in a try/catch and check `response.ok` before calling `.json()`.
+        - Never use `EventSource` for SSE — use `fetch()` with `ReadableStream` (EventSource doesn't support POST or auth headers).
+        - No file longer than 300 lines.
+
+    # ── Frontend: Next.js 16 specific ─────────────────────────────────────────
+    - path: 'frontend/app/**/*.{ts,tsx}'
+      instructions: |
+        Next.js 16 routing checks:
+        - `middleware.ts` is DEPRECATED in Next.js 16 — the auth guard file must be `proxy.ts` exporting `export function proxy(request: NextRequest)`.
+        - Async params in pages and route handlers must be `Promise<{ param: string }>` and awaited.
+        - Pages must not contain business logic — delegate to feature components.
+        - `'use cache'` for data fetching functions that should be cached (replaces fetch cache options).
+        - React Compiler is enabled — do NOT add `useMemo` or `useCallback` unless profiling proves it necessary.
+
+    # ── Frontend: Supabase clients ─────────────────────────────────────────────
+    - path: 'frontend/lib/supabase/**/*.ts'
+      instructions: |
+        Supabase SSR client checks:
+        - Browser client must use `createBrowserClient` from `@supabase/ssr` — NOT `createClient` from `@supabase/supabase-js` directly.
+        - Server client must use `createServerClient` from `@supabase/ssr` with cookie handling.
+        - Never import `@supabase/auth-helpers` — it is deprecated; use `@supabase/ssr` only.
+        - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` for the browser — never expose `SUPABASE_SECRET_KEY` (service role) to the frontend.
+        - Never store JWT tokens in localStorage — use Supabase session cookies via `@supabase/ssr`.
+
+    # ── Frontend: feature hooks ────────────────────────────────────────────────
+    - path: 'frontend/features/**/hooks/*.ts'
+      instructions: |
+        TanStack Query hook checks:
+        - `queryFn` must throw on non-ok HTTP responses — never return `undefined` silently.
+        - `mutationFn` must include the Authorization header with the Supabase JWT.
+        - Cache keys must be scoped to user ID to prevent cross-user data leaks.
+        - Never call `useQuery` conditionally — use the `enabled` option instead.
+
+    # ── Supabase migrations ────────────────────────────────────────────────────
+    - path: 'supabase/migrations/**/*.sql'
+      instructions: |
+        Postgres / Supabase migration checks:
+        - Every new table in `public` schema must have `ENABLE ROW LEVEL SECURITY`.
+        - RLS policies must use `(select auth.uid())` — NOT bare `auth.uid()` (avoids per-row re-evaluation).
+        - Every foreign key column must have an explicit index — Postgres does NOT auto-create FK indexes.
+        - New functions must declare `SET search_path = public` (or the appropriate schema) to prevent search path hijacking.
+        - Never create functions with `SECURITY DEFINER` in the `public` schema — use a private schema.
+        - Use `UUID` primary keys with `gen_random_uuid()` default — never serial integers for user-facing IDs.
+        - Use `TIMESTAMPTZ` not `TIMESTAMP` for all datetime columns.
+        - Use `JSONB` not `JSON` for JSON columns.
+        - Extensions must be installed in `extensions` schema — never in `public`.
+        - Views must use `WITH (security_invoker = true)` to respect RLS.
+
+    # ── Environment files ──────────────────────────────────────────────────────
+    - path: '**/.env*'
+      instructions: |
+        - Flag any .env file that is NOT .env.example being committed to the repo.
+        - Verify .gitignore excludes all .env files except .env.example.
+        - Flag any hardcoded secret values (keys, tokens, passwords) — placeholders like REPLACE_WITH_KEY are acceptable.
+
+    # ── GitHub Actions / CI ────────────────────────────────────────────────────
+    - path: '.github/workflows/**/*.yml'
+      instructions: |
+        - Pin all action versions to a specific commit SHA — never use floating tags like `@main` or `@v3`.
+        - Never print secrets in run steps — check for accidental `echo $SECRET`.
+        - Use `permissions:` at the job level with least-privilege principle.
+
+chat:
+  auto_reply: true
+
+issue_enrichment:
+  labeling:
+    auto_apply_labels: true
+    labeling_instructions:
+      - label: bug
+        instructions: Issues reporting errors, crashes, incorrect behavior, or regressions.
+      - label: enhancement
+        instructions: Feature requests, improvements, performance optimizations, refactoring.
+      - label: security
+        instructions: Security vulnerabilities, OWASP issues, auth bypass, secret leaks, RLS bypasses, PII handling issues.
+      - label: documentation
+        instructions: Missing docs, outdated information, unclear instructions, README improvements.
