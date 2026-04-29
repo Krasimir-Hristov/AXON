@@ -39,25 +39,37 @@ class FileTooLargeError(ValueError):
     pass
 
 
+class FileParseError(ValueError):
+    """Raised when a file's bytes can't be parsed (corrupt PDF, broken DOCX zip, …)."""
+
+
 def _parse_pdf(content: bytes) -> str:
-    reader = PdfReader(io.BytesIO(content))
-    parts: list[str] = []
-    for page in reader.pages:
-        text = page.extract_text() or ""
-        if text:
-            parts.append(text)
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        parts: list[str] = []
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            if text:
+                parts.append(text)
+    except Exception as exc:  # noqa: BLE001 — pypdf raises a wide variety of errors
+        raise FileParseError(f"Failed to parse PDF: {exc}") from exc
     return "\n\n".join(parts)
 
 
 def _parse_docx(content: bytes) -> str:
-    document = Document(io.BytesIO(content))
-    parts: list[str] = [p.text for p in document.paragraphs if p.text.strip()]
-    # Also extract text from tables — commonly contains key info in assignment docs.
-    for table in document.tables:
-        for row in table.rows:
-            row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
-            if row_text:
-                parts.append(row_text)
+    try:
+        document = Document(io.BytesIO(content))
+        parts: list[str] = [p.text for p in document.paragraphs if p.text.strip()]
+        # Also extract text from tables — commonly contains key info in assignment docs.
+        for table in document.tables:
+            for row in table.rows:
+                row_text = " | ".join(
+                    cell.text.strip() for cell in row.cells if cell.text.strip()
+                )
+                if row_text:
+                    parts.append(row_text)
+    except Exception as exc:  # noqa: BLE001 — python-docx raises PackageNotFoundError, KeyError, etc.
+        raise FileParseError(f"Failed to parse DOCX: {exc}") from exc
     return "\n\n".join(parts)
 
 

@@ -5,7 +5,8 @@ using `openai/text-embedding-3-large` with dimensions=1536 (Matryoshka), to
 match the existing `extensions.vector(1536)` column.
 
 This module owns:
-- `embed_text` — async OpenRouter call (httpx).
+- `embed_text` / `embed_texts` — async OpenRouter calls (httpx) with retry
+  on transient 429/5xx errors via tenacity.
 - `insert_memory` / `list_memories` / `delete_memory` — Supabase CRUD.
 - `match_memories` — invokes the SQL RPC defined in
   `supabase/migrations/20260427211558_create_match_memories_rpc.sql`.
@@ -18,6 +19,12 @@ from typing import Any
 from uuid import UUID
 
 import httpx
+from tenacity import (
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from app.core.config import settings
 from app.db.supabase import get_supabase_client
@@ -26,13 +33,79 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
+# Maximum batch size accepted by OpenAI embeddings API. We stay well below the
+# documented 2048 limit because OpenRouter occasionally tightens it per-provider.
+_EMBED_BATCH_SIZE = 96
 
-async def embed_text(text: str) -> list[float]:
-    """Return a 1536-dim embedding vector for `text` via OpenRouter."""
+
+class EmbeddingResponseError(RuntimeError):
+    """Raised when OpenRouter returns a 200 response with a malformed body."""
+
+
+def _is_retryable_http_error(exc: BaseException) -> bool:
+    """Retry only on transient errors: connection issues, timeouts, 429, 5xx."""
+    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        status_code = exc.response.status_code
+        return status_code == 429 or 500 <= status_code < 600
+    return False
+
+
+def _parse_embeddings(payload: dict[str, Any], expected_count: int) -> list[list[float]]:
+    """Defensively extract embedding vectors from an OpenRouter response body."""
+    data = payload.get("data")
+    if not isinstance(data, list) or len(data) != expected_count:
+        raise EmbeddingResponseError(
+            f"Unexpected embeddings payload shape (expected {expected_count} rows)"
+        )
+    vectors: list[list[float]] = []
+    for row in data:
+        if not isinstance(row, dict):
+            raise EmbeddingResponseError("Embeddings row is not an object")
+        vec = row.get("embedding")
+        if not isinstance(vec, list) or len(vec) != settings.embedding_dimensions:
+            raise EmbeddingResponseError(
+                f"Embedding vector has wrong shape (expected {settings.embedding_dimensions} floats)"
+            )
+        vectors.append(vec)
+    return vectors
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_http_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=0.5, min=0.5, max=4.0),
+    reraise=True,
+)
+async def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Return 1536-dim embedding vectors for each text in `texts`.
+
+    Batches multiple inputs into a single OpenRouter call (OpenAI embeddings
+    API accepts `input: list[str]`). Caller is responsible for chunking very
+    large input lists; this helper splits internally at `_EMBED_BATCH_SIZE`.
+    """
+    if not texts:
+        return []
+
+    if len(texts) > _EMBED_BATCH_SIZE:
+        # Split into multiple calls and concatenate. Each sub-call is also
+        # retried independently because of the @retry decorator on this
+        # function — but recursion via list comprehension would re-enter the
+        # decorator; instead, do the loop here without recursion.
+        out: list[list[float]] = []
+        for start in range(0, len(texts), _EMBED_BATCH_SIZE):
+            out.extend(await _embed_batch(texts[start : start + _EMBED_BATCH_SIZE]))
+        return out
+
+    return await _embed_batch(texts)
+
+
+async def _embed_batch(batch: list[str]) -> list[list[float]]:
     url = f"{settings.openrouter_base_url.rstrip('/')}/embeddings"
     payload = {
         "model": settings.embedding_model,
-        "input": text,
+        "input": batch,
         "dimensions": settings.embedding_dimensions,
         "encoding_format": "float",
     }
@@ -43,13 +116,14 @@ async def embed_text(text: str) -> list[float]:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         response = await client.post(url, json=payload, headers=headers)
         response.raise_for_status()
-        data = response.json()
-    embedding = data["data"][0]["embedding"]
-    if len(embedding) != settings.embedding_dimensions:
-        raise ValueError(
-            f"Embedding dim mismatch: got {len(embedding)}, expected {settings.embedding_dimensions}"
-        )
-    return embedding
+        body = response.json()
+    return _parse_embeddings(body, expected_count=len(batch))
+
+
+async def embed_text(text: str) -> list[float]:
+    """Return a single 1536-dim embedding vector for `text`."""
+    vectors = await embed_texts([text])
+    return vectors[0]
 
 
 async def insert_memory(

@@ -41,4 +41,14 @@ async def search_memory(query: str, runtime: ToolRuntime) -> str:
     if not results:
         return "No relevant memories found."
 
-    return "\n".join(f"- {r.content}" for r in results)
+    # Trim each snippet so a few large file chunks can't blow past the model's
+    # context window (search returns up to 5 results × potentially several
+    # thousand chars each from uploaded files).
+    _SNIPPET_MAX = 500
+    lines: list[str] = []
+    for r in results:
+        snippet = r.content[:_SNIPPET_MAX]
+        if len(r.content) > _SNIPPET_MAX:
+            snippet += "…"
+        lines.append(f"- {snippet}")
+    return "\n".join(lines)

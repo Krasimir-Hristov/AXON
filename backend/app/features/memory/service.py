@@ -6,6 +6,7 @@ Search path: query → mask_pii → embed → match_memories RPC → decrypt
 File path:   upload → parse → chunk → for each chunk: write path
 """
 
+import asyncio
 import logging
 from pathlib import PurePosixPath
 from typing import Any
@@ -110,12 +111,28 @@ async def ingest_file(
     filename: str,
     content: bytes,
 ) -> FileUploadResult:
-    """Parse, chunk, and store an uploaded file as a series of memory entries."""
+    """Parse, chunk, and store an uploaded file as a series of memory entries.
+
+    Embeddings are produced in a single batched call to OpenRouter (one HTTP
+    round-trip for up to 96 chunks), then encrypted + persisted sequentially.
+    Sequential inserts are intentional: they keep the order stable and avoid
+    overwhelming the Supabase connection pool, while the embedding round-trip
+    (the actual latency hot-spot) happens in parallel server-side.
+    """
     text = await ingest.extract_text(filename, content)
     if not text.strip():
         return FileUploadResult(file_name=filename, chunks_created=0, memory_ids=[])
 
     chunks = ingest.chunk_text(text)
+    if not chunks:
+        return FileUploadResult(file_name=filename, chunks_created=0, memory_ids=[])
+
+    # 1. Mask all chunks (parallel — pure CPU offloaded to threads).
+    masked_chunks = await asyncio.gather(*(mask_pii(c) for c in chunks))
+
+    # 2. Embed everything in one batched call.
+    vectors = await db.embed_texts(list(masked_chunks))
+
     suffix = PurePosixPath(filename).suffix.lower()
     base_metadata: dict[str, Any] = {
         "source": "file",
@@ -124,14 +141,25 @@ async def ingest_file(
         "total_chunks": len(chunks),
     }
 
+    # 3. Encrypt + insert sequentially. Failures on individual rows are
+    # logged; we keep going so a single bad row doesn't lose the whole upload.
     ids: list[UUID] = []
-    for index, chunk in enumerate(chunks):
-        entry = await create_memory(
-            user_id=user_id,
-            content=chunk,
-            metadata={**base_metadata, "chunk_index": index},
-        )
-        ids.append(entry.id)
+    for index, (chunk, masked, vector) in enumerate(
+        zip(chunks, masked_chunks, vectors, strict=True)
+    ):
+        try:
+            row = await db.insert_memory(
+                user_id=user_id,
+                content_encrypted=encrypt(chunk),
+                content_masked=masked,
+                embedding=vector,
+                metadata={**base_metadata, "chunk_index": index},
+            )
+            ids.append(_row_to_entry(row).id)
+        except Exception:  # noqa: BLE001 — partial-success semantics
+            logger.exception(
+                "Failed to persist chunk %s of %s for user %s", index, filename, user_id
+            )
 
     return FileUploadResult(
         file_name=filename,

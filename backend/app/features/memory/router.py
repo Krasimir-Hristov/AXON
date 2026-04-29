@@ -11,6 +11,7 @@ from app.features.memory import service
 from app.features.memory.ingest import (
     ALLOWED_EXTENSIONS,
     MAX_FILE_SIZE_BYTES,
+    FileParseError,
     FileTooLargeError,
     UnsupportedFileTypeError,
 )
@@ -79,7 +80,27 @@ async def upload_file_endpoint(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Missing filename"
         )
+
+    # Pre-flight size check — Starlette populates `file.size` from the
+    # multipart Content-Length header when available. Reject oversized
+    # uploads BEFORE buffering the body so a malicious client cannot exhaust
+    # disk via SpooledTemporaryFile.
+    if file.size is not None and file.size > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds {MAX_FILE_SIZE_BYTES} bytes",
+        )
+
     content = await file.read()
+    # Defence in depth — clients can send chunked uploads without a
+    # Content-Length, in which case file.size is None and we only know the
+    # real size after read(). Re-check here before doing any expensive work.
+    if len(content) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds {MAX_FILE_SIZE_BYTES} bytes",
+        )
+
     try:
         return await service.ingest_file(
             user_id=current_user.id,
@@ -95,4 +116,11 @@ async def upload_file_endpoint(
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File exceeds {MAX_FILE_SIZE_BYTES} bytes",
+        ) from exc
+    except FileParseError as exc:
+        # Corrupt / encrypted PDF, broken DOCX zip, etc. — bad input, not 500.
+        logger.warning("Failed to parse uploaded file '%s': %s", file.filename, exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to parse file — it may be corrupt, encrypted, or empty",
         ) from exc
