@@ -62,19 +62,19 @@
 
 ## PHASE 3 — Backend Agents Foundation
 
-- [ ] `app/agents/state.py` — `AxonState(TypedDict)`: `messages`, `user_id`, `model_id`, `memory_context`
-- [ ] `app/db/supabase.py` — async Supabase client singleton (`get_supabase_client()`)
-- [ ] `app/agents/orchestrator.py` — minimal LangGraph graph: single node calling OpenRouter via `httpx.AsyncClient`
+- [x] `app/agents/state.py` — `AxonState(TypedDict)`: `messages`, `user_id`, `model_id`, `memory_context`
+- [x] `app/db/supabase.py` — async Supabase client singleton (`get_supabase_client()`)
+- [x] `app/agents/orchestrator.py` — minimal LangGraph graph: single node calling OpenRouter via `httpx.AsyncClient`
 
 ---
 
 ## PHASE 4 — Backend Chat (SSE Streaming)
 
-- [ ] `app/features/chat/schemas.py` — `ChatRequest(message, model_id, conversation_id?)` + `SSEEvent`
-- [ ] `app/features/chat/service.py` — calls `orchestrator.graph.astream_events(version="v2")`, yields SSE tokens
-- [ ] `app/features/chat/router.py` — `POST /api/v1/chat/stream` → `StreamingResponse(media_type="text/event-stream")`, protected
-- [ ] Mount chat router in `main.py`
-- [ ] **Verify /docs:** POST with JWT → see streamed `{"type":"token","content":"..."}` in response
+- [x] `app/features/chat/schemas.py` — `ChatRequest(message, model_id, conversation_id?)` + `SSEEvent`
+- [x] `app/features/chat/service.py` — calls `orchestrator.graph.astream_events(version="v2")`, yields SSE tokens
+- [x] `app/features/chat/router.py` — `POST /api/v1/chat/stream` → `StreamingResponse(media_type="text/event-stream")`, protected
+- [x] Mount chat router in `main.py`
+- [x] **Verify /docs:** POST with JWT → see streamed `{"type":"token","content":"..."}` in response
 
 ---
 
