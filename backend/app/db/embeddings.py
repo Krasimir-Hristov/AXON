@@ -53,23 +53,59 @@ def _is_retryable_http_error(exc: BaseException) -> bool:
 
 
 def _parse_embeddings(payload: dict[str, Any], expected_count: int) -> list[list[float]]:
-    """Defensively extract embedding vectors from an OpenRouter response body."""
+    """Defensively extract embedding vectors from an OpenRouter response body.
+
+    OpenAI's embeddings spec attaches an `index` field to each row matching
+    the position of the corresponding string in the request `input` array.
+    We sort by that index instead of relying on array order — providers /
+    proxies are *allowed* to reorder rows and a silent reorder would associate
+    embeddings with the wrong source chunks.
+    """
     data = payload.get("data")
     if not isinstance(data, list) or len(data) != expected_count:
         raise EmbeddingResponseError(
             f"Unexpected embeddings payload shape (expected {expected_count} rows)"
         )
-    vectors: list[list[float]] = []
+
+    indexed: list[tuple[int, list[float]]] = []
+    seen_indices: set[int] = set()
     for row in data:
         if not isinstance(row, dict):
             raise EmbeddingResponseError("Embeddings row is not an object")
+        idx = row.get("index")
+        if not isinstance(idx, int) or idx < 0 or idx >= expected_count:
+            raise EmbeddingResponseError(
+                f"Embeddings row has invalid 'index' field: {idx!r}"
+            )
+        if idx in seen_indices:
+            raise EmbeddingResponseError(f"Duplicate embedding index {idx}")
+        seen_indices.add(idx)
         vec = row.get("embedding")
         if not isinstance(vec, list) or len(vec) != settings.embedding_dimensions:
             raise EmbeddingResponseError(
                 f"Embedding vector has wrong shape (expected {settings.embedding_dimensions} floats)"
             )
-        vectors.append(vec)
-    return vectors
+        indexed.append((idx, vec))
+
+    indexed.sort(key=lambda pair: pair[0])
+    return [vec for _, vec in indexed]
+
+
+async def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Return 1536-dim embedding vectors for each text in `texts`.
+
+    Splits input into chunks of `_EMBED_BATCH_SIZE` and dispatches one HTTP
+    call per chunk. Retry/backoff is applied per-chunk inside `_embed_batch`,
+    so a transient failure on the Nth sub-batch does not re-pay for the
+    successful earlier ones.
+    """
+    if not texts:
+        return []
+
+    out: list[list[float]] = []
+    for start in range(0, len(texts), _EMBED_BATCH_SIZE):
+        out.extend(await _embed_batch(texts[start : start + _EMBED_BATCH_SIZE]))
+    return out
 
 
 @retry(
@@ -78,29 +114,6 @@ def _parse_embeddings(payload: dict[str, Any], expected_count: int) -> list[list
     wait=wait_exponential(multiplier=0.5, min=0.5, max=4.0),
     reraise=True,
 )
-async def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Return 1536-dim embedding vectors for each text in `texts`.
-
-    Batches multiple inputs into a single OpenRouter call (OpenAI embeddings
-    API accepts `input: list[str]`). Caller is responsible for chunking very
-    large input lists; this helper splits internally at `_EMBED_BATCH_SIZE`.
-    """
-    if not texts:
-        return []
-
-    if len(texts) > _EMBED_BATCH_SIZE:
-        # Split into multiple calls and concatenate. Each sub-call is also
-        # retried independently because of the @retry decorator on this
-        # function — but recursion via list comprehension would re-enter the
-        # decorator; instead, do the loop here without recursion.
-        out: list[list[float]] = []
-        for start in range(0, len(texts), _EMBED_BATCH_SIZE):
-            out.extend(await _embed_batch(texts[start : start + _EMBED_BATCH_SIZE]))
-        return out
-
-    return await _embed_batch(texts)
-
-
 async def _embed_batch(batch: list[str]) -> list[list[float]]:
     url = f"{settings.openrouter_base_url.rstrip('/')}/embeddings"
     payload = {

@@ -81,10 +81,13 @@ async def upload_file_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Missing filename"
         )
 
-    # Pre-flight size check — Starlette populates `file.size` from the
-    # multipart Content-Length header when available. Reject oversized
-    # uploads BEFORE buffering the body so a malicious client cannot exhaust
-    # disk via SpooledTemporaryFile.
+    # Pre-flight size check from the multipart Content-Length header. Note:
+    # by the time this handler runs, Starlette has already buffered the body
+    # into a SpooledTemporaryFile (rolled to disk past ~1 MB), so this guard
+    # does NOT prevent disk exhaustion — it only short-circuits the work
+    # below (read into RAM + parsing + embedding) for clearly oversized
+    # uploads. True early rejection requires an ASGI middleware enforcing
+    # Content-Length or an upstream proxy (e.g. nginx client_max_body_size).
     if file.size is not None and file.size > MAX_FILE_SIZE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -92,9 +95,9 @@ async def upload_file_endpoint(
         )
 
     content = await file.read()
-    # Defence in depth — clients can send chunked uploads without a
-    # Content-Length, in which case file.size is None and we only know the
-    # real size after read(). Re-check here before doing any expensive work.
+    # Defence in depth — chunked uploads have no Content-Length, so file.size
+    # is None and we only learn the real size after read(). Re-check here
+    # before doing any expensive parsing / embedding work.
     if len(content) > MAX_FILE_SIZE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,

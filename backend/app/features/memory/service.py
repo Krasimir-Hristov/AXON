@@ -127,8 +127,18 @@ async def ingest_file(
     if not chunks:
         return FileUploadResult(file_name=filename, chunks_created=0, memory_ids=[])
 
-    # 1. Mask all chunks (parallel — pure CPU offloaded to threads).
-    masked_chunks = await asyncio.gather(*(mask_pii(c) for c in chunks))
+    # 1. Mask all chunks. Each `mask_pii` call dispatches Presidio work to
+    # the default thread pool (32 workers); a 500-chunk upload from a single
+    # user could otherwise starve the pool for everyone else. Bound the
+    # in-flight count with a small semaphore.
+    _MASK_CONCURRENCY = 8
+    sem = asyncio.Semaphore(_MASK_CONCURRENCY)
+
+    async def _mask(chunk: str) -> str:
+        async with sem:
+            return await mask_pii(chunk)
+
+    masked_chunks = await asyncio.gather(*(_mask(c) for c in chunks))
 
     # 2. Embed everything in one batched call.
     vectors = await db.embed_texts(list(masked_chunks))
