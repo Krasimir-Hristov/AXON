@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan — startup before yield, shutdown after yield."""
     logger.info("AXON API starting up (debug=%s)", settings.debug)
     # Future phases: initialise Supabase client and LangGraph here
