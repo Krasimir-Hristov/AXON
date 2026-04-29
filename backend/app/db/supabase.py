@@ -36,8 +36,16 @@ async def get_supabase_client() -> AsyncClient:
         if _client is not None:
             return _client
         logger.info("Initialising Supabase async client")
-        _client = await create_async_client(
-            settings.supabase_url,
-            settings.supabase_secret_key,
-        )
+        try:
+            # NOTE: never include settings.supabase_secret_key in logs (OWASP A09).
+            _client = await create_async_client(
+                settings.supabase_url,
+                settings.supabase_secret_key,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to initialise Supabase client (url=%s)",
+                settings.supabase_url,
+            )
+            raise
         return _client

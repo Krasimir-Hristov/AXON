@@ -10,6 +10,7 @@ from fastapi import HTTPException, status
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from app.agents.state import AxonState
 from app.core.config import settings
@@ -55,12 +56,17 @@ async def orchestrator_node(state: AxonState) -> dict:
     Errors from OpenRouter surface as HTTPException 502; FastAPI converts them
     to a JSON error response (or, in the streaming path, the chat service
     catches them and emits an SSE error frame).
+
+    Both model initialisation and invocation are guarded by the same try/except
+    so that a failure during init_chat_model (e.g. invalid API key on first
+    call) is surfaced through the same 502 mapping as a runtime LLM error,
+    instead of bubbling up as a raw 500.
     """
-    model = _get_model()
     try:
+        model = _get_model()
         response = await model.ainvoke(state["messages"])
-    except Exception as exc:
-        logger.error("Orchestrator LLM call failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001 — uniform 502 mapping for any LLM-side failure
+        logger.exception("Orchestrator LLM call failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="AI service unavailable",
@@ -68,7 +74,7 @@ async def orchestrator_node(state: AxonState) -> dict:
     return {"messages": [response]}
 
 
-def _build_graph():
+def _build_graph() -> CompiledStateGraph:
     """Build and compile the orchestrator graph."""
     builder = StateGraph(AxonState)
     builder.add_node("orchestrator", orchestrator_node)
@@ -78,4 +84,4 @@ def _build_graph():
 
 
 # Compiled graph — exported singleton consumed by the chat service.
-graph = _build_graph()
+graph: CompiledStateGraph = _build_graph()

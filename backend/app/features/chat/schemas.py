@@ -1,6 +1,7 @@
 """Chat schemas — request body and SSE event envelope."""
 
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -10,12 +11,13 @@ class ChatRequest(BaseModel):
 
     Validated at the system boundary per OWASP A03 (input validation): the
     message length is bounded to prevent oversized payloads from reaching the
-    LLM, and conversation_id is optional until persistence is wired up.
+    LLM, and conversation_id, when provided, must parse as a UUID so that
+    malformed identifiers are rejected with 422 before reaching the DB layer.
     """
 
     message: str = Field(min_length=1, max_length=10_000)
     model_id: str = Field(min_length=1, max_length=200)
-    conversation_id: str | None = None
+    conversation_id: UUID | None = None
 
 
 class SSEEvent(BaseModel):

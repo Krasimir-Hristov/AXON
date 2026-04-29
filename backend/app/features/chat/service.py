@@ -1,7 +1,7 @@
 """Chat service — async generator that streams orchestrator output as SSE frames."""
 
 import logging
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from langchain_core.messages import HumanMessage
 
@@ -60,12 +60,10 @@ async def stream_chat(
                 continue
             yield _format(SSEEvent(type="token", content=content))
 
-    except (
-        Exception
-    ) as exc:  # noqa: BLE001 — convert any upstream failure into an SSE error frame instead of a mid-stream 500
-        # Log the full exception, but expose only a generic message to the
-        # client to avoid leaking internal details.
-        logger.error("Chat stream failed for user %s: %s", user.id, exc)
+    except Exception:  # noqa: BLE001 — convert any upstream failure into an SSE error frame instead of a mid-stream 500
+        # logger.exception() captures the full traceback for debugging while
+        # the client still receives only the generic AI-service message.
+        logger.exception("Chat stream failed for user %s", user.id)
         yield _format(SSEEvent(type="error", content="AI service unavailable"))
 
     finally:
