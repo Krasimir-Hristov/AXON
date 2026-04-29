@@ -74,7 +74,26 @@ def _parse_docx(content: bytes) -> str:
 
 
 def _parse_text(content: bytes) -> str:
-    return content.decode("utf-8", errors="replace")
+    """Decode a .txt / .md upload as UTF-8.
+
+    We attempt strict UTF-8 first so we never silently corrupt user data.
+    For real-world plain-text files that come from Windows editors (mojibake,
+    Windows-1252 smart quotes, etc.) we fall back to UTF-8 with replacement
+    AND emit a warning — losing the upload entirely is worse UX than
+    accepting a few `\\ufffd` characters, but the operator must be able to
+    see in the logs that the file wasn't clean UTF-8.
+    """
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        logger.warning(
+            "Non-UTF-8 bytes in text upload (size=%d, first_bad=%d, reason=%s); "
+            "falling back to lossy decode",
+            len(content),
+            exc.start,
+            exc.reason,
+        )
+        return content.decode("utf-8", errors="replace")
 
 
 def _extract_text_sync(filename: str, content: bytes) -> str:

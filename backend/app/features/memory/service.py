@@ -140,8 +140,9 @@ async def ingest_file(
 
     masked_chunks = await asyncio.gather(*(_mask(c) for c in chunks))
 
-    # 2. Embed everything in one batched call.
-    vectors = await db.embed_texts(list(masked_chunks))
+    # 2. Embed everything in one batched call. `asyncio.gather` already
+    # returns a list, so no extra wrapping is needed.
+    vectors = await db.embed_texts(masked_chunks)
 
     suffix = PurePosixPath(filename).suffix.lower()
     base_metadata: dict[str, Any] = {

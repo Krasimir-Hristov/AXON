@@ -35,25 +35,49 @@ _anonymizer: AnonymizerEngine | None = None
 _init_lock = Lock()
 
 
+class PIIMaskingError(RuntimeError):
+    """Raised when PII masking fails — never carries Presidio/spaCy internals."""
+
+
 def _get_engines() -> tuple[AnalyzerEngine, AnonymizerEngine]:
-    """Lazy thread-safe init of Presidio engines (sync — called inside to_thread)."""
+    """Lazy thread-safe init of Presidio engines (sync — called inside to_thread).
+
+    Engines are assigned to module globals only after BOTH construct
+    successfully, so a failure midway through cannot leave a partially
+    initialised state for the next caller.
+    """
     global _analyzer, _anonymizer  # noqa: PLW0603 — intentional module-level singleton
     if _analyzer is not None and _anonymizer is not None:
         return _analyzer, _anonymizer
     with _init_lock:
-        if _analyzer is None or _anonymizer is None:
-            logger.info("Initialising Presidio engines (loads spaCy en_core_web_sm)")
-            _analyzer = AnalyzerEngine()
-            _anonymizer = AnonymizerEngine()
+        if _analyzer is not None and _anonymizer is not None:
+            return _analyzer, _anonymizer
+        logger.info("Initialising Presidio engines (loads spaCy en_core_web_sm)")
+        try:
+            analyzer = AnalyzerEngine()
+            anonymizer = AnonymizerEngine()
+        except Exception:
+            logger.exception("Failed to initialise Presidio engines")
+            raise PIIMaskingError("PII masking unavailable") from None
+        _analyzer, _anonymizer = analyzer, anonymizer
         return _analyzer, _anonymizer
 
 
 def _mask_sync(text: str) -> str:
     analyzer, anonymizer = _get_engines()
-    results = analyzer.analyze(text=text, entities=_ENTITIES, language="en")
-    if not results:
-        return text
-    anonymized = anonymizer.anonymize(text=text, analyzer_results=results)
+    try:
+        results = analyzer.analyze(text=text, entities=_ENTITIES, language="en")
+        if not results:
+            return text
+        anonymized = anonymizer.anonymize(text=text, analyzer_results=results)
+    except PIIMaskingError:
+        raise
+    except Exception:
+        # Never let raw Presidio/spaCy errors reach callers, and never fall
+        # back to returning the unmasked text — that would silently bypass
+        # the privacy guarantee of the write pipeline.
+        logger.exception("Presidio masking call failed (text length=%d)", len(text))
+        raise PIIMaskingError("PII masking failed") from None
     return anonymized.text
 
 

@@ -4,6 +4,7 @@ Exposes `search_memory(query)` to the orchestrator. The user_id is read from
 graph state via `ToolRuntime` so the LLM cannot spoof it through the tool args.
 """
 
+import hashlib
 import logging
 
 from langchain.tools import ToolRuntime, tool
@@ -11,6 +12,17 @@ from langchain.tools import ToolRuntime, tool
 from app.features.memory import service
 
 logger = logging.getLogger(__name__)
+
+
+def _redact_user_id(user_id: str) -> str:
+    """Return a short, non-reversible identifier suitable for log lines.
+
+    Supabase user IDs are UUIDs, which are arguably PII when correlated with
+    other tables. We log a truncated SHA-256 instead — still useful for
+    grouping log entries from the same user when debugging, but cannot be
+    joined back to a specific account from logs alone.
+    """
+    return hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:12]
 
 
 @tool
@@ -35,7 +47,9 @@ async def search_memory(query: str, runtime: ToolRuntime) -> str:
             limit=5,
         )
     except Exception:  # noqa: BLE001 — never let tool errors bubble into the LLM as a 500
-        logger.exception("search_memory failed for user %s", user_id)
+        logger.exception(
+            "search_memory failed (user_hash=%s)", _redact_user_id(user_id)
+        )
         return "Memory search temporarily unavailable."
 
     if not results:
