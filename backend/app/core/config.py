@@ -18,6 +18,16 @@ class Settings(BaseSettings):
     # JWT — must match Supabase Dashboard → Settings → API → JWT Secret
     jwt_secret_key: str
 
+    # Encryption (Phase 5) — Fernet key (urlsafe base64, 32 bytes).
+    # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Used to encrypt memory_entries.content_encrypted at rest.
+    encryption_key: str
+
+    # Embeddings (Phase 5) — OpenRouter routes this to OpenAI's embeddings API.
+    # Dimensions must match the DB schema (extensions.vector(1536)).
+    embedding_model: str = "openai/text-embedding-3-large"
+    embedding_dimensions: int = 1536
+
     # Server
     debug: bool = False
     log_level: str = "INFO"
