@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.features.auth.router import router as auth_router
 from app.features.chat.router import router as chat_router
+from app.features.memory.router import router as memory_router
 from app.features.models.router import router as models_router
 
 logging.basicConfig(level=settings.log_level.upper())
@@ -50,3 +51,4 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(models_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
+app.include_router(memory_router, prefix="/api/v1")

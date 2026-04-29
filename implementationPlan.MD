@@ -78,17 +78,22 @@
 
 ---
 
-## PHASE 5 — Backend Memory + RAG
+## PHASE 5 — Backend Memory + RAG + File Uploads
 
-- [ ] `app/core/privacy.py` — `mask_pii(text: str) -> str` using Presidio + `en_core_web_sm`
-- [ ] `app/db/embeddings.py` — `embed_text()` (OpenAI API), `upsert_memory()`, `search_memory()` (pgvector `<=>`)
-- [ ] `app/features/memory/schemas.py` — `MemoryCreate`, `MemoryEntry`, `MemorySearchRequest`
-- [ ] `app/features/memory/service.py` — pipeline: mask → embed → store (AES-256 encrypt original); decrypt on retrieval
-- [ ] `app/features/memory/router.py` — `POST /api/v1/memory`, `GET /api/v1/memory`, `DELETE /api/v1/memory/{id}` (all protected)
-- [ ] `app/features/memory/tool.py` — `@tool async def search_memory(query: str) -> str`
-- [ ] Wire `search_memory` tool into `orchestrator.py` via `ToolNode`
+- [x] `app/core/privacy.py` — async `mask_pii(text)` using Presidio + `en_core_web_sm`, dispatched via `asyncio.to_thread` (singleton engines)
+- [x] `app/core/crypto.py` — Fernet (AES-128-CBC + HMAC) `encrypt`/`decrypt` helpers, fail-fast on bad key
+- [x] `app/db/embeddings.py` — `embed_text()` via OpenRouter `/embeddings` (`openai/text-embedding-3-large`, `dimensions=1536`), plus `insert_memory`, `list_memories`, `delete_memory`, `match_memories` (RPC)
+- [x] `app/features/memory/schemas.py` — `MemoryCreate`, `MemoryEntry`, `MemorySearchRequest`, `MemorySearchResult`, `FileUploadResult`
+- [x] `app/features/memory/ingest.py` — parse `.txt`/`.md`/`.pdf`/`.docx` (pypdf + python-docx in `to_thread`) + `RecursiveCharacterTextSplitter` (800/100); 10 MB / 500 chunk limits
+- [x] `app/features/memory/service.py` — pipeline: mask → embed(masked) → encrypt(plaintext) → insert; decrypt on retrieval; `ingest_file` for chunked uploads
+- [x] `app/features/memory/router.py` — `POST /api/v1/memory`, `GET /api/v1/memory`, `POST /api/v1/memory/search`, `DELETE /api/v1/memory/{id}`, `POST /api/v1/memory/upload` (multipart) — all protected
+- [x] `app/features/memory/tool.py` — `@tool async def search_memory(query, runtime: ToolRuntime)` — reads `user_id` from graph state
+- [x] Wire `search_memory` into `orchestrator.py` via `bind_tools` + `ToolNode` + conditional edge `should_continue`
+- [x] Add `ENCRYPTION_KEY`, `embedding_model`, `embedding_dimensions` to `app/core/config.py`
+- [x] New deps: `pypdf`, `langchain-text-splitters`, `python-docx`
 - [ ] **Verify /docs:** POST memory → GET list → DELETE works
 - [ ] **Verify:** Chat message referencing stored memory → orchestrator uses memory tool
+- [ ] **Verify:** Upload PDF → multiple chunks created → searchable
 
 ---
 
