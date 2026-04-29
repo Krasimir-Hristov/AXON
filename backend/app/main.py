@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.features.auth.router import router as auth_router
+from app.features.chat.router import router as chat_router
 from app.features.models.router import router as models_router
 
 logging.basicConfig(level=settings.log_level.upper())
@@ -45,5 +46,7 @@ app.add_middleware(
 # Final paths = middleware prefix + router prefix:
 #   /api/v1 + /auth + /me     →  GET /api/v1/auth/me
 #   /api/v1 + /models + ""   →  GET /api/v1/models
+#   /api/v1 + /chat + /stream →  POST /api/v1/chat/stream
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(models_router, prefix="/api/v1")
+app.include_router(chat_router, prefix="/api/v1")
