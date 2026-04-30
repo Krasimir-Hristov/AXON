@@ -1,102 +1,62 @@
-"""Orchestrator graph — LLM node + tool node + conditional routing.
+"""Orchestrator graph — supervisor pattern with memory specialist sub-agent.
 
-Phase 5 evolution: the graph now binds the `search_memory` tool. Flow:
 
-    START → orchestrator → (has tool_calls?) → tools → orchestrator → END
-                          └────────────── no ────────────────────────→ END
+    START → supervisor → (transfer_to_memory_agent called) → memory_agent → supervisor → END
+                       → (responds directly)                              → END
+
+- **supervisor**:     Entry point for every turn. Binds ``transfer_to_memory_agent``
+                      on the first pass to let the LLM signal a memory lookup. On
+                      the second pass (after memory_agent runs) it uses a plain model
+                      (no tools) with the retrieved context injected as a system
+                      message, guaranteeing no re-delegation loop.
+
+- **memory_agent**:   Searches long-term memory directly (no extra LLM call) and
+                      adds a ToolMessage + ``memory_context`` update to state.
 """
 
 import logging
 
-from fastapi import HTTPException, status
-from langchain.chat_models import init_chat_model
-from langchain_core.language_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.prebuilt import ToolNode
+from langchain_core.messages import ToolMessage
 
 from app.agents.state import AxonState
-from app.core.config import settings
-from app.features.memory.tool import search_memory
+from app.agents.subagents.memory_agent import memory_agent_node
+from app.agents.supervisor import HANDOFF_TOOL_NAME, supervisor_node
 
 logger = logging.getLogger(__name__)
 
-# Tools available to the orchestrator. Adding a new tool? Append it here AND
-# create the @tool function in features/<name>/tool.py.
-_TOOLS = [search_memory]
-
-
-def _build_chat_model() -> BaseChatModel:
-    """Construct the chat model bound to OpenRouter and to the tool list."""
-    base = init_chat_model(
-        settings.llm_model,
-        model_provider="openai",
-        base_url=settings.openrouter_base_url,
-        api_key=settings.openrouter_api_key,
-        streaming=True,
-    )
-    return base.bind_tools(_TOOLS)
-
-
-# Module-level model singleton — lazily constructed on first node invocation
-# so that import time does not hit the network.
-_model: BaseChatModel | None = None
-
-
-def _get_model() -> BaseChatModel:
-    global _model  # noqa: PLW0603 — intentional module-level singleton
-    if _model is None:
-        _model = _build_chat_model()
-    return _model
-
-
-async def orchestrator_node(state: AxonState) -> dict:
-    """LangGraph node: invoke the LLM with the current message history.
-
-    Returns a partial-state update dict. The `add_messages` reducer on
-    AxonState["messages"] appends the response to the existing history.
-
-    Errors from OpenRouter surface as HTTPException 502; FastAPI converts them
-    to a JSON error response (or, in the streaming path, the chat service
-    catches them and emits an SSE error frame).
-
-    Both model initialisation and invocation are guarded by the same try/except
-    so that a failure during init_chat_model (e.g. invalid API key on first
-    call) is surfaced through the same 502 mapping as a runtime LLM error,
-    instead of bubbling up as a raw 500.
-    """
-    try:
-        model = _get_model()
-        response = await model.ainvoke(state["messages"])
-    except Exception as exc:  # noqa: BLE001 — uniform 502 mapping for any LLM-side failure
-        logger.exception("Orchestrator LLM call failed")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="AI service unavailable",
-        ) from exc
-    return {"messages": [response]}
-
 
 def _should_continue(state: AxonState) -> str:
-    """Route to the tools node if the LLM produced tool_calls, else stop."""
+    """Route to memory_agent if the supervisor called the handoff tool, else stop.
+
+    A ToolMessage already in the message history means memory_agent has run
+    this turn; returning END prevents a re-delegation loop even if the LLM
+    mistakenly calls the handoff tool again on the second pass.
+    """
+    if any(isinstance(m, ToolMessage) for m in state["messages"]):
+        return END
     last = state["messages"][-1]
     if getattr(last, "tool_calls", None):
-        return "tools"
+        for tc in last.tool_calls:
+            if tc["name"] == HANDOFF_TOOL_NAME:
+                return "memory_agent"
     return END
 
 
 def _build_graph() -> CompiledStateGraph:
-    """Build and compile the orchestrator graph with tool routing."""
+    """Build and compile the orchestrator graph with supervisor pattern."""
     builder = StateGraph(AxonState)
-    builder.add_node("orchestrator", orchestrator_node)
-    builder.add_node("tools", ToolNode(_TOOLS))
-    builder.add_edge(START, "orchestrator")
+    builder.add_node("supervisor", supervisor_node)
+    builder.add_node("memory_agent", memory_agent_node)
+    builder.add_edge(START, "supervisor")
     builder.add_conditional_edges(
-        "orchestrator",
+        "supervisor",
         _should_continue,
-        {"tools": "tools", END: END},
+        {"memory_agent": "memory_agent", END: END},
     )
-    builder.add_edge("tools", "orchestrator")
+    # After memory_agent finishes, return to supervisor for the final response.
+    builder.add_edge("memory_agent", "supervisor")
     return builder.compile()
 
 
