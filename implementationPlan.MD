@@ -109,19 +109,34 @@
 
 **Лимити по route:**
 
-| Route | Limit | Причина |
-|-------|-------|---------|
-| `POST /chat/stream` | 20/minute | LLM call + embeddings — най-скъп |
-| `POST /memory/upload` | 5/minute | embeddings × N chunks — потенциално стотици API calls |
-| `POST /memory` | 30/minute | 1 embedding call |
-| `POST /memory/search` | 30/minute | 1 embedding call |
-| `GET /memory` | 60/minute | само DB read |
-| `DELETE /memory/{id}` | 30/minute | само DB write |
-| `GET /models` | 60/minute | cached, публичен — по IP |
+| Route                 | Limit     | Причина                                               |
+| --------------------- | --------- | ----------------------------------------------------- |
+| `POST /chat/stream`   | 20/minute | LLM call + embeddings — най-скъп                      |
+| `POST /memory/upload` | 5/minute  | embeddings × N chunks — потенциално стотици API calls |
+| `POST /memory`        | 30/minute | 1 embedding call                                      |
+| `POST /memory/search` | 30/minute | 1 embedding call                                      |
+| `GET /memory`         | 60/minute | само DB read                                          |
+| `DELETE /memory/{id}` | 30/minute | само DB write                                         |
+| `GET /models`         | 60/minute | cached, публичен — по IP                              |
 
 ---
 
-## PHASE 6 — Frontend Core & Auth
+## PHASE 6 — Supervisor Pattern Agent
+
+> **Architecture:** Multi-agent graph — supervisor decides routing, memory_agent handles retrieval.
+> Flow: `START → supervisor → (needs memory) → memory_agent → supervisor → END`
+> `→ (direct reply)                          → END`
+
+- [x] `app/agents/subagents/__init__.py` — subagents package
+- [x] `app/agents/subagents/memory_agent.py` — async node: searches memory service directly, adds ToolMessage + updates `memory_context`
+- [x] `app/agents/supervisor.py` — `supervisor_node` with `transfer_to_memory_agent` handoff tool; two model singletons (routing / response) to prevent re-delegation loops
+- [x] `app/agents/orchestrator.py` — refactored: `supervisor` + `memory_agent` nodes, `_should_continue` with ToolMessage-based loop guard
+- [ ] **Verify:** "what do you know about me?" → trace shows `supervisor → memory_agent → supervisor`
+- [ ] **Verify:** "write me a haiku" → supervisor responds directly (`supervisor → END`)
+
+---
+
+## PHASE 7 — Frontend Core & Auth
 
 - [ ] `lib/supabase/client.ts` — `createBrowserClient` (`@supabase/ssr`)
 - [ ] `lib/supabase/server.ts` — `createServerClient` with cookies
