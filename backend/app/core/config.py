@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # Example: redis://localhost:6379/0
     redis_url: str | None = None
 
+    # CORS — comma-separated list of allowed origins.
+    # Example: http://localhost:3000,https://axon.example.com
+    cors_origins: list[str] = ["http://localhost:3000"]
+
     # Server
     debug: bool = False
     log_level: str = "INFO"
