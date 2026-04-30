@@ -6,8 +6,13 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.features.auth.router import router as auth_router
 from app.features.chat.router import router as chat_router
 from app.features.memory.router import router as memory_router
@@ -33,11 +38,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Allow requests from the Next.js dev server.
-# allow_credentials=True is required for Supabase session cookies to pass through.
+# Rate limiting — must be set on app.state BEFORE SlowAPIMiddleware is added.
+# SlowAPIMiddleware is required for @limiter.limit() to fire on APIRouter sub-routers.
+# Without it the decorator is registered but never executed.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+# CORS — added after SlowAPIMiddleware so it wraps the outside of the stack.
+# Starlette executes middleware in LIFO order, meaning CORSMiddleware runs first
+# (outermost), ensuring CORS headers are present even on 429 responses.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,3 +65,9 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(models_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(memory_router, prefix="/api/v1")
+
+
+@app.get("/api/v1/health", tags=["health"])
+async def health_check() -> JSONResponse:
+    """Liveness probe — returns 200 OK when the API process is running."""
+    return JSONResponse({"status": "ok", "version": app.version})

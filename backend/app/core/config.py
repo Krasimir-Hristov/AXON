@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     embedding_model: str = "openai/text-embedding-3-large"
     embedding_dimensions: int = 1536
 
+    # Rate limiting — optional Redis backend for multi-worker deployments.
+    # Leave unset (default None) to use in-memory storage (single process).
+    # Example: redis://localhost:6379/0
+    redis_url: str | None = None
+
+    # CORS — comma-separated list of allowed origins.
+    # Example: http://localhost:3000,https://axon.example.com
+    cors_origins: list[str] = ["http://localhost:3000"]
+
     # Server
     debug: bool = False
     log_level: str = "INFO"

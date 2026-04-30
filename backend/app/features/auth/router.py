@@ -1,7 +1,8 @@
 """Auth router — identity endpoint for the authenticated user."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
+from app.core.limiter import limiter
 from app.core.security import get_current_user
 from app.features.auth.schemas import UserSchema
 
@@ -11,7 +12,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.get("/me", response_model=UserSchema)
+@limiter.limit("60/minute")
 async def get_me(
+    request: Request,
     current_user: UserSchema = Depends(get_current_user),
 ) -> UserSchema:
     """Return the identity of the authenticated user.
