@@ -1,8 +1,9 @@
 """Chat router — POST /api/v1/chat/stream (SSE), JWT-protected."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
+from app.core.limiter import limiter
 from app.core.security import get_current_user
 from app.features.auth.schemas import UserSchema
 from app.features.chat.schemas import ChatRequest
@@ -12,8 +13,10 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 @router.post("/stream")
+@limiter.limit("20/minute")
 async def chat_stream(
-    request: ChatRequest,
+    request: Request,
+    payload: ChatRequest,
     current_user: UserSchema = Depends(get_current_user),
 ) -> StreamingResponse:
     """Stream the orchestrator response as Server-Sent Events.
@@ -23,7 +26,7 @@ async def chat_stream(
     never from the request body.
     """
     return StreamingResponse(
-        stream_chat(request, current_user),
+        stream_chat(payload, current_user),
         media_type="text/event-stream",
         headers={
             # Disable caches and proxy buffering so tokens reach the client

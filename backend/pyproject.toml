@@ -23,3 +23,14 @@ dependencies = [
     "supabase>=2.29.0",
     "tenacity>=9.1.4",
 ]
+
+[tool.ruff.lint]
+# ARG001 (unused function argument) fires on `request: Request` in every
+# slowapi-decorated route. slowapi reads that parameter by name via function
+# introspection at runtime — it IS used, just not by our code directly.
+per-file-ignores = { "app/features/**/router.py" = ["ARG001"] }
+
+# BLE001 (broad exception) is suppressed inline with # noqa: BLE001 comment
+# where catching everything is justified (e.g. JWT key decoding fallback).
+select = ["E", "F", "I", "UP", "B", "PL", "RUF"]
+

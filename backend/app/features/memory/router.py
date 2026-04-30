@@ -3,8 +3,9 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 
+from app.core.limiter import limiter
 from app.core.security import get_current_user
 from app.features.auth.schemas import UserSchema
 from app.features.memory import service
@@ -28,7 +29,9 @@ router = APIRouter(prefix="/memory", tags=["memory"])
 
 
 @router.post("", response_model=MemoryEntry, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 async def create_memory_endpoint(
+    request: Request,
     payload: MemoryCreate,
     current_user: UserSchema = Depends(get_current_user),
 ) -> MemoryEntry:
@@ -40,14 +43,18 @@ async def create_memory_endpoint(
 
 
 @router.get("", response_model=list[MemoryEntry])
+@limiter.limit("60/minute")
 async def list_memories_endpoint(
+    request: Request,
     current_user: UserSchema = Depends(get_current_user),
 ) -> list[MemoryEntry]:
     return await service.list_memories(current_user.id)
 
 
 @router.post("/search", response_model=list[MemorySearchResult])
+@limiter.limit("30/minute")
 async def search_memories_endpoint(
+    request: Request,
     payload: MemorySearchRequest,
     current_user: UserSchema = Depends(get_current_user),
 ) -> list[MemorySearchResult]:
@@ -60,7 +67,9 @@ async def search_memories_endpoint(
 
 
 @router.delete("/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
 async def delete_memory_endpoint(
+    request: Request,
     memory_id: UUID,
     current_user: UserSchema = Depends(get_current_user),
 ) -> None:
@@ -72,7 +81,9 @@ async def delete_memory_endpoint(
 
 
 @router.post("/upload", response_model=FileUploadResult)
+@limiter.limit("5/minute")
 async def upload_file_endpoint(
+    request: Request,
     file: UploadFile = File(...),
     current_user: UserSchema = Depends(get_current_user),
 ) -> FileUploadResult:

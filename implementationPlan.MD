@@ -97,6 +97,30 @@
 
 ---
 
+## PHASE 5.5 — Backend Rate Limiting
+
+> **Решение:** in-memory storage по подразбиране (без external dependency, работи перфектно при single-process). Redis се включва само ако зададеш `REDIS_URL` env var — нужен единствено при multiple workers или horizontal scaling. `slowapi` е вече в `pyproject.toml`.
+
+- [x] `app/core/limiter.py` — `Limiter(key_func=_jwt_key)` singleton; `_jwt_key` декодира `sub` от Bearer token без пълна JWT верификация (верификацията е в `security.py`); fallback към `remote_address` за публичните routes
+- [x] Register `RateLimitExceeded` → 429 handler в `app/main.py` с `Retry-After` header
+- [x] Apply limits per route (decorator `@limiter.limit(...)`) — вижте таблицата по-долу
+- [x] Env var `REDIS_URL` в `config.py` (optional, default None) — ако е зададен, `storage_uri=settings.redis_url`, иначе in-memory
+- [ ] **Verify:** Hammer `/api/v1/chat/stream` → 429 след лимита с `Retry-After`
+
+**Лимити по route:**
+
+| Route | Limit | Причина |
+|-------|-------|---------|
+| `POST /chat/stream` | 20/minute | LLM call + embeddings — най-скъп |
+| `POST /memory/upload` | 5/minute | embeddings × N chunks — потенциално стотици API calls |
+| `POST /memory` | 30/minute | 1 embedding call |
+| `POST /memory/search` | 30/minute | 1 embedding call |
+| `GET /memory` | 60/minute | само DB read |
+| `DELETE /memory/{id}` | 30/minute | само DB write |
+| `GET /models` | 60/minute | cached, публичен — по IP |
+
+---
+
 ## PHASE 6 — Frontend Core & Auth
 
 - [ ] `lib/supabase/client.ts` — `createBrowserClient` (`@supabase/ssr`)
