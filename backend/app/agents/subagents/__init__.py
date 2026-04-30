@@ -1,1 +1,1 @@
-# Subagents package — specialised agents managed by the supervisor.
+"""Subagents package — specialised agents managed by the supervisor."""

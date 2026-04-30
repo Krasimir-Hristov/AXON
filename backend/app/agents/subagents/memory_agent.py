@@ -10,6 +10,7 @@ Searches long-term memory directly (no extra LLM call needed for retrieval) and:
      supervisor can inject them into its system prompt on the second pass.
 """
 
+import hashlib
 import logging
 
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -53,7 +54,8 @@ async def memory_agent_node(state: AxonState) -> dict:
             limit=5,
         )
     except Exception:  # noqa: BLE001
-        logger.exception("memory_agent_node: search failed (query=%r)", query[:80])
+        query_hash = hashlib.sha256(query.encode()).hexdigest()[:8]
+        logger.exception("memory_agent_node: search failed (query_hash=%s)", query_hash)
         results = []
 
     snippets = [r.content for r in results]

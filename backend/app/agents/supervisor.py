@@ -21,7 +21,7 @@ import logging
 from fastapi import HTTPException, status
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 
 from app.agents.state import AxonState
@@ -106,8 +106,15 @@ async def supervisor_node(state: AxonState) -> dict:
     """
     messages = list(state["messages"])
 
-    # Detect whether memory_agent has already run this turn.
-    memory_done = any(isinstance(m, ToolMessage) for m in messages)
+    # Detect whether memory_agent has already run *this turn* by scoping the
+    # check to messages after the last HumanMessage. Historical ToolMessages
+    # from previous turns must not lock the supervisor into _get_response_model().
+    last_human_idx = next(
+        (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], HumanMessage)),
+        -1,
+    )
+    current_turn = messages[last_human_idx + 1:]
+    memory_done = any(isinstance(m, ToolMessage) for m in current_turn)
 
     if memory_done:
         # Inject memory context into the system prompt so the LLM can reference it.

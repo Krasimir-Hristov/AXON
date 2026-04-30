@@ -18,7 +18,7 @@ import logging
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 
 from app.agents.state import AxonState
 from app.agents.subagents.memory_agent import memory_agent_node
@@ -30,13 +30,22 @@ logger = logging.getLogger(__name__)
 def _should_continue(state: AxonState) -> str:
     """Route to memory_agent if the supervisor called the handoff tool, else stop.
 
-    A ToolMessage already in the message history means memory_agent has run
-    this turn; returning END prevents a re-delegation loop even if the LLM
-    mistakenly calls the handoff tool again on the second pass.
+    Only inspects messages from the *current* turn (after the last HumanMessage)
+    so that ToolMessages from previous turns don't block future memory lookups.
     """
-    if any(isinstance(m, ToolMessage) for m in state["messages"]):
+    messages = state["messages"]
+    # Scope to the current turn: find the last HumanMessage index.
+    last_human_idx = next(
+        (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], HumanMessage)),
+        -1,
+    )
+    current_turn = messages[last_human_idx + 1:]
+
+    # If memory_agent already ran this turn, stop to prevent re-delegation.
+    if any(isinstance(m, ToolMessage) for m in current_turn):
         return END
-    last = state["messages"][-1]
+
+    last = messages[-1]
     if getattr(last, "tool_calls", None):
         for tc in last.tool_calls:
             if tc["name"] == HANDOFF_TOOL_NAME:
