@@ -33,7 +33,7 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Authenticated user trying to access login → send to chat
-  if (user && pathname.startsWith('/login')) {
+  if (user && (pathname === '/login' || pathname.startsWith('/login/'))) {
     const url = request.nextUrl.clone();
     url.pathname = '/chat';
     return NextResponse.redirect(url);
@@ -42,8 +42,8 @@ export async function proxy(request: NextRequest) {
   // Unauthenticated user trying to access protected routes → send to login
   if (
     !user &&
-    !pathname.startsWith('/login') &&
-    !pathname.startsWith('/auth')
+    !(pathname === '/login' || pathname.startsWith('/login/')) &&
+    !(pathname === '/auth' || pathname.startsWith('/auth/'))
   ) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
