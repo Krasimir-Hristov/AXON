@@ -42,8 +42,10 @@ export async function proxy(request: NextRequest) {
   // Unauthenticated user trying to access protected routes → send to login
   if (
     !user &&
-    !(pathname === '/login' || pathname.startsWith('/login/')) &&
-    !(pathname === '/auth' || pathname.startsWith('/auth/'))
+    pathname !== '/login' &&
+    !pathname.startsWith('/login/') &&
+    pathname !== '/auth' &&
+    !pathname.startsWith('/auth/')
   ) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
