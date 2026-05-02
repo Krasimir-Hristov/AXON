@@ -91,9 +91,9 @@
 - [x] Wire `search_memory` into `orchestrator.py` via `bind_tools` + `ToolNode` + conditional edge `should_continue`
 - [x] Add `ENCRYPTION_KEY`, `embedding_model`, `embedding_dimensions` to `app/core/config.py`
 - [x] New deps: `pypdf`, `langchain-text-splitters`, `python-docx`
-- [ ] **Verify /docs:** POST memory → GET list → DELETE works
-- [ ] **Verify:** Chat message referencing stored memory → orchestrator uses memory tool
-- [ ] **Verify:** Upload PDF → multiple chunks created → searchable
+- [x] **Verify /docs:** POST memory → GET list → DELETE works
+- [x] **Verify:** Chat message referencing stored memory → orchestrator uses memory tool
+- [x] **Verify:** Upload PDF → multiple chunks created → searchable
 
 ---
 
@@ -105,7 +105,7 @@
 - [x] Register `RateLimitExceeded` → 429 handler в `app/main.py` с `Retry-After` header
 - [x] Apply limits per route (decorator `@limiter.limit(...)`) — вижте таблицата по-долу
 - [x] Env var `REDIS_URL` в `config.py` (optional, default None) — ако е зададен, `storage_uri=settings.redis_url`, иначе in-memory
-- [ ] **Verify:** Hammer `/api/v1/chat/stream` → 429 след лимита с `Retry-After`
+- [x] **Verify:** Hammer `/api/v1/chat/stream` → 429 след лимита с `Retry-After`
 
 **Лимити по route:**
 
@@ -131,8 +131,8 @@
 - [x] `app/agents/subagents/memory_agent.py` — async node: searches memory service directly, adds ToolMessage + updates `memory_context`
 - [x] `app/agents/supervisor.py` — `supervisor_node` with `transfer_to_memory_agent` handoff tool; two model singletons (routing / response) to prevent re-delegation loops
 - [x] `app/agents/orchestrator.py` — refactored: `supervisor` + `memory_agent` nodes, `_should_continue` with ToolMessage-based loop guard
-- [ ] **Verify:** "what do you know about me?" → trace shows `supervisor → memory_agent → supervisor`
-- [ ] **Verify:** "write me a haiku" → supervisor responds directly (`supervisor → END`)
+- [x] **Verify:** "what do you know about me?" → trace shows `supervisor → memory_agent → supervisor`
+- [x] **Verify:** "write me a haiku" → supervisor responds directly (`supervisor → END`)
 
 ---
 
