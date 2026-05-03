@@ -34,3 +34,12 @@ per-file-ignores = { "app/features/**/router.py" = ["ARG001"] }
 # where catching everything is justified (e.g. JWT key decoding fallback).
 select = ["E", "F", "I", "UP", "B", "PL", "RUF"]
 
+[tool.pylint.messages-control]
+# W0613 unused-argument — request: Request is required by SlowAPI's rate-limiter
+#   decorator, which reads it via FastAPI's dependency injection at runtime.
+#   Ruff ARG001 is already suppressed per-file in per-file-ignores above.
+# W0718 broad-exception-caught — intentional in graceful-degradation handlers
+#   (DB writes / history loads) where any upstream failure must not abort the
+#   chat stream. Ruff BLE001 is suppressed inline with # noqa: BLE001.
+disable = ["W0613", "W0718"]
+

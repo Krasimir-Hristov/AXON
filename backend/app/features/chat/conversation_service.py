@@ -1,0 +1,187 @@
+"""Conversation service — DB CRUD for conversations and chat message history."""
+
+import logging
+from typing import Any, cast
+from uuid import UUID
+
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+
+from app.db.supabase import get_supabase_client
+
+logger = logging.getLogger(__name__)
+
+# Only user/assistant messages are replayed as LangChain history.
+# System and tool messages are transient graph internals — not persisted.
+_HISTORY_ROLES = {"user", "assistant"}
+_ROLE_TO_MESSAGE: dict[str, type[BaseMessage]] = {
+    "user": HumanMessage,
+    "assistant": AIMessage,
+}
+
+
+async def get_or_create_conversation(
+    user_id: str,
+    conversation_id: UUID | None,
+    model_id: str,
+) -> str:
+    """Return the validated conversation id, or create a new one.
+
+    If conversation_id is provided but does not exist or does not belong to the
+    user, silently creates a new conversation rather than leaking existence info.
+    Returns the conversation id as a string.
+    """
+    client = await get_supabase_client()
+
+    if conversation_id is not None:
+        result = (
+            await client.table("conversations")
+            .select("id")
+            .eq("id", str(conversation_id))
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if result.data:
+            rows = cast(list[dict[str, Any]], result.data)
+            return str(rows[0]["id"])
+
+    result = (
+        await client.table("conversations")
+        .insert({"user_id": user_id, "model_id": model_id})
+        .execute()
+    )
+    inserted = cast(list[dict[str, Any]], result.data)
+    return str(inserted[0]["id"])
+
+
+async def save_message(
+    conversation_id: str,
+    user_id: str,
+    role: str,
+    content: str,
+) -> None:
+    """Insert a message row. Logs on failure but does not raise.
+
+    Graceful degradation: a DB write failure must not prevent the user from
+    receiving the AI response. History gaps are preferable to broken chat.
+    """
+    client = await get_supabase_client()
+    try:
+        await (
+            client.table("messages")
+            .insert(
+                {
+                    "conversation_id": conversation_id,
+                    "user_id": user_id,
+                    "role": role,
+                    "content": content,
+                }
+            )
+            .execute()
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Failed to save %s message for conversation %s", role, conversation_id
+        )
+
+
+async def load_history(
+    conversation_id: str,
+    user_id: str,
+    limit: int = 40,
+) -> list[BaseMessage]:
+    """Return the last `limit` user/assistant messages in chronological order.
+
+    Default limit=40 covers 20 full turns (20 user + 20 assistant messages),
+    matching the requirement of last 20 exchanges for model context window.
+    Fetches newest-first, then reverses to give the LLM chronological order.
+    """
+    client = await get_supabase_client()
+    try:
+        result = (
+            await client.table("messages")
+            .select("role, content")
+            .eq("conversation_id", conversation_id)
+            .eq("user_id", user_id)
+            .in_("role", list(_HISTORY_ROLES))
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Failed to load history for conversation %s", conversation_id
+        )
+        return []
+
+    rows: list[dict[str, Any]] = cast(list[dict[str, Any]], list(reversed(result.data or [])))
+    messages: list[BaseMessage] = []
+    for row in rows:
+        cls = _ROLE_TO_MESSAGE.get(str(row["role"]))
+        if cls is not None:
+            messages.append(cls(content=str(row["content"])))
+    return messages
+
+
+async def list_conversations(user_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Return conversations for a user, ordered by most recent activity first."""
+    client = await get_supabase_client()
+    result = (
+        await client.table("conversations")
+        .select("id, title, model_id, created_at, updated_at")
+        .eq("user_id", user_id)
+        .order("updated_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    rows: list[dict[str, Any]] = cast(list[dict[str, Any]], result.data or [])
+    return rows
+
+
+async def get_messages(
+    conversation_id: str,
+    user_id: str,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Return all messages for a conversation in chronological order."""
+    client = await get_supabase_client()
+
+    # Verify ownership before returning messages.
+    conv = (
+        await client.table("conversations")
+        .select("id")
+        .eq("id", conversation_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not conv.data:
+        return []
+
+    result = (
+        await client.table("messages")
+        .select("id, conversation_id, role, content, created_at")
+        .eq("conversation_id", conversation_id)
+        .eq("user_id", user_id)
+        .order("created_at", desc=False)
+        .limit(limit)
+        .execute()
+    )
+    rows: list[dict[str, Any]] = cast(list[dict[str, Any]], result.data or [])
+    return rows
+
+
+async def delete_conversation(conversation_id: str, user_id: str) -> bool:
+    """Delete a conversation and all its messages via CASCADE.
+
+    Returns True if a row was deleted, False if not found or not owned by user.
+    """
+    client = await get_supabase_client()
+    result = (
+        await client.table("conversations")
+        .delete()
+        .eq("id", conversation_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return bool(result.data)
