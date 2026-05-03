@@ -22,7 +22,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 @router.post("/stream")
 @limiter.limit("20/minute")
 async def chat_stream(
-    _request: Request,
+    request: Request,
     payload: ChatRequest,
     current_user: UserSchema = Depends(get_current_user),
 ) -> StreamingResponse:
@@ -48,7 +48,7 @@ async def chat_stream(
 @router.get("/conversations", response_model=list[ConversationOut])
 @limiter.limit("60/minute")
 async def get_conversations(
-    _request: Request,  # noqa: ARG001 — required by SlowAPI rate limiter
+    request: Request,
     current_user: UserSchema = Depends(get_current_user),
 ) -> list[ConversationOut]:
     """Return all conversations for the authenticated user, newest first."""
@@ -61,7 +61,7 @@ async def get_conversations(
 )
 @limiter.limit("60/minute")
 async def get_conversation_messages(
-    _request: Request,  # noqa: ARG001 — required by SlowAPI rate limiter
+    request: Request,
     conversation_id: UUID,
     current_user: UserSchema = Depends(get_current_user),
 ) -> list[MessageOut]:
@@ -78,7 +78,7 @@ async def get_conversation_messages(
 @router.delete("/conversations/{conversation_id}", status_code=204)
 @limiter.limit("30/minute")
 async def remove_conversation(
-    _request: Request,  # noqa: ARG001 — required by SlowAPI rate limiter
+    request: Request,
     conversation_id: UUID,
     current_user: UserSchema = Depends(get_current_user),
 ) -> Response:
