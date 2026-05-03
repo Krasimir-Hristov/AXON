@@ -1,12 +1,15 @@
 """Chat service — async generator that streams orchestrator output as SSE frames."""
 
+import asyncio
+import hashlib
 import logging
 from collections.abc import AsyncIterator
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 
 from app.agents.orchestrator import graph
 from app.agents.state import AxonState
+from app.core.privacy import mask_pii
 from app.features.auth.schemas import UserSchema
 from app.features.chat.conversation_service import (
     get_or_create_conversation,
@@ -44,13 +47,16 @@ async def stream_chat(
     Always emits a terminal `done` frame in the finally block so the client
     has a deterministic stop signal even when the upstream connection drops.
     """
-    # ── 1. Resolve conversation ───────────────────────────────────────────────
+    # Anonymise user id for logs — never log raw UUIDs (matches memory/tool.py pattern)
+    _uid_tag = hashlib.sha256(user.id.encode()).hexdigest()[:8]
+
+    # ── 1. Resolve conversation ──────────────────────────────────────────
     try:
         conversation_id = await get_or_create_conversation(
             user.id, request.conversation_id, request.model_id
         )
-    except Exception:  # noqa: BLE001
-        logger.exception("Failed to resolve conversation for user %s", user.id)
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception("Failed to resolve conversation for user [uid:%s]", _uid_tag)
         yield _format(SSEEvent(type="error", content="Failed to initialise conversation"))
         yield _format(SSEEvent(type="done"))
         return
@@ -58,15 +64,28 @@ async def stream_chat(
     # ── 2. Load history ───────────────────────────────────────────────────────
     history = await load_history(conversation_id, user.id, limit=40)
 
-    # ── 3. Persist user message ───────────────────────────────────────────────
+    # ── 3. Persist user message (original, unmasked) ────────────────────
     await save_message(conversation_id, user.id, "user", request.message)
 
-    # ── 4. Emit start frame ───────────────────────────────────────────────────
+    # ── 4. Emit start frame ───────────────────────────────────────
     yield _format(SSEEvent(type="start", content=conversation_id))
 
-    # ── 5. Stream the graph ───────────────────────────────────────────────────
+    # ── 5. Stream the graph ──────────────────────────────────────────
+    # Mask PII from history and current message before sending to the model.
+    # save_message above persists the original unmasked text as intended.
+    masked_message = await mask_pii(request.message)
+    if history:
+        masked_contents = await asyncio.gather(
+            *(mask_pii(str(msg.content)) for msg in history)
+        )
+        masked_history: list[BaseMessage] = [
+            type(msg)(content=mc) for msg, mc in zip(history, masked_contents)
+        ]
+    else:
+        masked_history = list(history)
+
     initial_state: AxonState = {
-        "messages": [*history, HumanMessage(content=request.message)],
+        "messages": [*masked_history, HumanMessage(content=masked_message)],
         "user_id": user.id,
         "model_id": request.model_id,
         "memory_context": [],
@@ -92,8 +111,8 @@ async def stream_chat(
             collected.append(content)
             yield _format(SSEEvent(type="token", content=content))
 
-    except Exception:  # noqa: BLE001
-        logger.exception("Chat stream failed for user %s", user.id)
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception("Chat stream failed for user [uid:%s]", _uid_tag)
         yield _format(SSEEvent(type="error", content="AI service unavailable"))
 
     finally:

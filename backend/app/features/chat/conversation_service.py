@@ -4,9 +4,11 @@ import logging
 from typing import Any, cast
 from uuid import UUID
 
+from fastapi import HTTPException
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from app.db.supabase import get_supabase_client
+from app.features.chat.schemas import ConversationOut, MessageOut
 
 logger = logging.getLogger(__name__)
 
@@ -33,23 +35,36 @@ async def get_or_create_conversation(
     client = await get_supabase_client()
 
     if conversation_id is not None:
-        result = (
-            await client.table("conversations")
-            .select("id")
-            .eq("id", str(conversation_id))
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
-        )
+        try:
+            result = (
+                await client.table("conversations")
+                .select("id")
+                .eq("id", str(conversation_id))
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            logger.exception(
+                "get_or_create_conversation: select failed conversation_id=%s",
+                conversation_id,
+            )
+            raise
         if result.data:
             rows = cast(list[dict[str, Any]], result.data)
             return str(rows[0]["id"])
 
-    result = (
-        await client.table("conversations")
-        .insert({"user_id": user_id, "model_id": model_id})
-        .execute()
-    )
+    try:
+        result = (
+            await client.table("conversations")
+            .insert({"user_id": user_id, "model_id": model_id})
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception(
+            "get_or_create_conversation: insert failed model_id=%s", model_id
+        )
+        raise
     inserted = cast(list[dict[str, Any]], result.data)
     return str(inserted[0]["id"])
 
@@ -79,7 +94,7 @@ async def save_message(
             )
             .execute()
         )
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         logger.exception(
             "Failed to save %s message for conversation %s", role, conversation_id
         )
@@ -108,7 +123,7 @@ async def load_history(
             .limit(limit)
             .execute()
         )
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         logger.exception(
             "Failed to load history for conversation %s", conversation_id
         )
@@ -123,52 +138,72 @@ async def load_history(
     return messages
 
 
-async def list_conversations(user_id: str, limit: int = 50) -> list[dict[str, Any]]:
+async def list_conversations(user_id: str, limit: int = 50) -> list[ConversationOut]:
     """Return conversations for a user, ordered by most recent activity first."""
     client = await get_supabase_client()
-    result = (
-        await client.table("conversations")
-        .select("id, title, model_id, created_at, updated_at")
-        .eq("user_id", user_id)
-        .order("updated_at", desc=True)
-        .limit(limit)
-        .execute()
-    )
+    try:
+        result = (
+            await client.table("conversations")
+            .select("id, title, model_id, created_at, updated_at")
+            .eq("user_id", user_id)
+            .order("updated_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception("list_conversations: query failed")
+        raise
     rows: list[dict[str, Any]] = cast(list[dict[str, Any]], result.data or [])
-    return rows
+    return [ConversationOut.model_validate(row) for row in rows]
 
 
 async def get_messages(
     conversation_id: str,
     user_id: str,
     limit: int = 200,
-) -> list[dict[str, Any]]:
-    """Return all messages for a conversation in chronological order."""
+) -> list[MessageOut]:
+    """Return all messages for a conversation in chronological order.
+
+    Raises HTTPException(404) when the conversation does not exist or does not
+    belong to user_id.
+    """
     client = await get_supabase_client()
 
     # Verify ownership before returning messages.
-    conv = (
-        await client.table("conversations")
-        .select("id")
-        .eq("id", conversation_id)
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
+    try:
+        conv = (
+            await client.table("conversations")
+            .select("id")
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception(
+            "get_messages: ownership check failed conversation_id=%s", conversation_id
+        )
+        raise
     if not conv.data:
-        return []
+        raise HTTPException(status_code=404, detail="Conversation not found")
 
-    result = (
-        await client.table("messages")
-        .select("id, conversation_id, role, content, created_at")
-        .eq("conversation_id", conversation_id)
-        .eq("user_id", user_id)
-        .order("created_at", desc=False)
-        .limit(limit)
-        .execute()
-    )
+    try:
+        result = (
+            await client.table("messages")
+            .select("id, conversation_id, role, content, created_at")
+            .eq("conversation_id", conversation_id)
+            .eq("user_id", user_id)
+            .order("created_at", desc=False)
+            .limit(limit)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception(
+            "get_messages: messages query failed conversation_id=%s", conversation_id
+        )
+        raise
     rows: list[dict[str, Any]] = cast(list[dict[str, Any]], result.data or [])
-    return rows
+    return [MessageOut.model_validate(row) for row in rows]
 
 
 async def delete_conversation(conversation_id: str, user_id: str) -> bool:
@@ -177,11 +212,17 @@ async def delete_conversation(conversation_id: str, user_id: str) -> bool:
     Returns True if a row was deleted, False if not found or not owned by user.
     """
     client = await get_supabase_client()
-    result = (
-        await client.table("conversations")
-        .delete()
-        .eq("id", conversation_id)
-        .eq("user_id", user_id)
-        .execute()
-    )
+    try:
+        result = (
+            await client.table("conversations")
+            .delete()
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception(
+            "delete_conversation: failed conversation_id=%s", conversation_id
+        )
+        raise
     return bool(result.data)

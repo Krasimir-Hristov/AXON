@@ -35,11 +35,10 @@ per-file-ignores = { "app/features/**/router.py" = ["ARG001"] }
 select = ["E", "F", "I", "UP", "B", "PL", "RUF"]
 
 [tool.pylint.messages-control]
-# W0613 unused-argument — request: Request is required by SlowAPI's rate-limiter
-#   decorator, which reads it via FastAPI's dependency injection at runtime.
-#   Ruff ARG001 is already suppressed per-file in per-file-ignores above.
-# W0718 broad-exception-caught — intentional in graceful-degradation handlers
-#   (DB writes / history loads) where any upstream failure must not abort the
-#   chat stream. Ruff BLE001 is suppressed inline with # noqa: BLE001.
-disable = ["W0613", "W0718"]
+# Suppressions are applied inline with # pylint: disable=... comments
+# at the specific call sites rather than globally here, keeping the scope
+# of each suppression as narrow as possible.
+# W0613 (unused-argument) — SlowAPI _request params use underscore prefix.
+# W0718 (broad-exception-caught) — suppressed inline with # noqa: BLE001
+#   on each intentional broad-except block (graceful-degradation handlers).
 

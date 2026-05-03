@@ -1,5 +1,7 @@
 """Chat router — streaming chat and conversation CRUD endpoints, JWT-protected."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
@@ -50,8 +52,7 @@ async def get_conversations(
     current_user: UserSchema = Depends(get_current_user),
 ) -> list[ConversationOut]:
     """Return all conversations for the authenticated user, newest first."""
-    rows = await list_conversations(current_user.id)
-    return [ConversationOut(**row) for row in rows]
+    return await list_conversations(current_user.id)
 
 
 @router.get(
@@ -61,32 +62,31 @@ async def get_conversations(
 @limiter.limit("60/minute")
 async def get_conversation_messages(
     _request: Request,  # noqa: ARG001 — required by SlowAPI rate limiter
-    conversation_id: str,
+    conversation_id: UUID,
     current_user: UserSchema = Depends(get_current_user),
 ) -> list[MessageOut]:
     """Return all messages in a conversation in chronological order.
 
     Returns 404 if the conversation does not exist or does not belong to the
-    authenticated user.
+    authenticated user. FastAPI validates the UUID shape and returns 422 for
+    malformed identifiers before they reach the DB layer.
     """
-    rows = await get_messages(conversation_id, current_user.id)
-    if rows is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    return [MessageOut(**row) for row in rows]
+    # get_messages raises HTTPException(404) when not found / not owned
+    return await get_messages(str(conversation_id), current_user.id)
 
 
 @router.delete("/conversations/{conversation_id}", status_code=204)
 @limiter.limit("30/minute")
 async def remove_conversation(
     _request: Request,  # noqa: ARG001 — required by SlowAPI rate limiter
-    conversation_id: str,
+    conversation_id: UUID,
     current_user: UserSchema = Depends(get_current_user),
 ) -> Response:
     """Delete a conversation and all its messages.
 
     Returns 204 on success, 404 if not found or not owned by the user.
     """
-    deleted = await delete_conversation(conversation_id, current_user.id)
+    deleted = await delete_conversation(str(conversation_id), current_user.id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return Response(status_code=204)

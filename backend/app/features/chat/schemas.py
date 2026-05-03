@@ -42,8 +42,8 @@ class ConversationOut(BaseModel):
     """Response schema for a single conversation record."""
 
     id: UUID
-    title: str
-    model_id: str
+    title: str = Field(min_length=1, max_length=200)
+    model_id: str = Field(min_length=1, max_length=200)
     created_at: datetime
     updated_at: datetime
 
@@ -53,6 +53,6 @@ class MessageOut(BaseModel):
 
     id: UUID
     conversation_id: UUID
-    role: str
-    content: str
+    role: Literal["user", "assistant", "system", "tool"]
+    content: str = Field(min_length=0, max_length=100_000)
     created_at: datetime
