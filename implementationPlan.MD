@@ -138,15 +138,15 @@
 
 ## PHASE 7 — Frontend Core & Auth
 
-- [ ] `lib/supabase/client.ts` — `createBrowserClient` (`@supabase/ssr`)
-- [ ] `lib/supabase/server.ts` — `createServerClient` with cookies
-- [ ] `proxy.ts` — auth guard: redirect to `/login` if no session, redirect to `/chat` if already logged in
-- [ ] `app/providers.tsx` — `QueryClientProvider` wrapper
-- [ ] `app/layout.tsx` — root layout wrapping `providers.tsx`
-- [ ] `features/auth/components/LoginButton.tsx` — Google OAuth trigger
-- [ ] `app/(auth)/login/page.tsx` — login page
-- [ ] `app/(auth)/callback/route.ts` — Supabase OAuth callback handler
-- [ ] **Verify:** Google login → redirected to `/chat`
+- [x] `lib/supabase/client.ts` — `createBrowserClient` (`@supabase/ssr`)
+- [x] `lib/supabase/server.ts` — `createServerClient` with cookies
+- [x] `proxy.ts` — auth guard: redirect to `/login` if no session, redirect to `/chat` if already logged in
+- [x] `app/providers.tsx` — `QueryClientProvider` wrapper
+- [x] `app/layout.tsx` — root layout wrapping `providers.tsx`
+- [x] `features/auth/components/LoginButton.tsx` — Google OAuth trigger
+- [x] `app/(auth)/login/page.tsx` — login page
+- [x] `app/(auth)/callback/route.ts` — Supabase OAuth callback handler
+- [x] **Verify:** Google login → redirected to `/chat`
 
 ---
 
