@@ -16,7 +16,7 @@
 - [x] `uv add "fastapi[standard]" langgraph langchain-core langchain-openai supabase httpx presidio-analyzer presidio-anonymizer pydantic-settings "python-jose[cryptography]" cryptography slowapi`
 - [x] `uv run python -m spacy download en_core_web_sm`
 - [x] Create `backend/.env` + `backend/.env.example` with all required keys
-- [ ] Verify: `uv run uvicorn app.main:app --reload` → `http://localhost:8000/docs` loads
+- [x] Verify: `uv run uvicorn app.main:app --reload` → `http://localhost:8000/docs` loads
 
 ### 0B — Frontend (pnpm)
 
@@ -136,7 +136,36 @@
 
 ---
 
-## PHASE 7 — Frontend Core & Auth
+## PHASE 6.5 — Backend Conversation Persistence
+
+> **Architecture:** Every chat session is tied to a `conversation` row in Supabase. Messages are stored in a separate `messages` table with `user_id` for RLS enforcement. History is replayed into `AxonState` on every request (last 40 rows = 20 turns). PII is masked before the LLM but the original text is persisted.
+
+- [x] `app/features/chat/conversation_service.py` — full CRUD layer:
+  - `get_or_create_conversation(user_id, conversation_id, model_id) -> str` — validates ownership; silently creates new on mismatch
+  - `save_message(conv_id, user_id, role, content) -> None` — graceful degradation (logs on failure, never aborts the stream)
+  - `load_history(conv_id, user_id, limit=40) -> list[BaseMessage]` — fetches newest-first, reverses for chronological LLM context
+  - `list_conversations(user_id) -> list[ConversationOut]` — ordered by `updated_at DESC`
+  - `get_messages(conv_id, user_id) -> list[MessageOut]` — raises `HTTPException(404)` when not found / not owned
+  - `delete_conversation(conv_id, user_id) -> bool` — CASCADE deletes messages via FK
+  - All Supabase calls wrapped in `try/except` with structured logging
+- [x] `app/features/chat/schemas.py` — added `ConversationOut` + `MessageOut` with `Field` constraints (`min_length`, `max_length`); `role` typed as `Literal["user","assistant","system","tool"]`
+- [x] `app/features/chat/router.py` — 3 new endpoints:
+  - `GET /api/v1/chat/conversations` — list all conversations (newest first)
+  - `GET /api/v1/chat/conversations/{conversation_id}/messages` — paginated message history; `conversation_id` validated as `UUID`
+  - `DELETE /api/v1/chat/conversations/{conversation_id}` — 204 on success, 404 on not found
+- [x] `app/features/chat/service.py` — wired conversation persistence into `stream_chat`:
+  - Step 1: `get_or_create_conversation` (error → yield error+done frame)
+  - Step 2: `load_history` (last 40 messages)
+  - Step 3: `save_message("user", original_text)` — persists unmasked
+  - Step 4: yield `start` frame with `conversation_id`
+  - Step 5: mask PII via `mask_pii` + `asyncio.gather` on history; build `AxonState` with masked messages
+  - Step 6 (finally): `save_message("assistant", joined_tokens)` + yield `done` frame
+  - User ID anonymised in logs (`SHA-256[:8]`)
+- [x] **Verify:** New conversation created on first message → `conversation_id` returned in `start` frame
+- [x] **Verify:** Subsequent messages with same `conversation_id` → history replayed into graph
+- [x] **Verify:** `GET /conversations` → list; `DELETE` → 204 + `GET /messages` → 404
+
+---
 
 - [x] `lib/supabase/client.ts` — `createBrowserClient` (`@supabase/ssr`)
 - [x] `lib/supabase/server.ts` — `createServerClient` with cookies
