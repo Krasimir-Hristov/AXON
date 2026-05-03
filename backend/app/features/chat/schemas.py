@@ -1,5 +1,6 @@
-"""Chat schemas — request body and SSE event envelope."""
+"""Chat schemas — request body, SSE event envelope, conversation and message outputs."""
 
+from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
@@ -25,7 +26,33 @@ class SSEEvent(BaseModel):
 
     Wire format on the client: each event is serialised as
         data: {"type":"...","content":"..."}\\n\\n
+
+    Frame types:
+        start  — first frame; content = conversation_id (UUID string)
+        token  — incremental LLM token
+        error  — non-fatal upstream error; chat ends after this
+        done   — terminal frame; always emitted in finally block
     """
 
-    type: Literal["token", "error", "done"]
+    type: Literal["start", "token", "error", "done"]
     content: str = ""
+
+
+class ConversationOut(BaseModel):
+    """Response schema for a single conversation record."""
+
+    id: UUID
+    title: str = Field(min_length=1, max_length=200)
+    model_id: str = Field(min_length=1, max_length=200)
+    created_at: datetime
+    updated_at: datetime
+
+
+class MessageOut(BaseModel):
+    """Response schema for a single persisted message."""
+
+    id: UUID
+    conversation_id: UUID
+    role: Literal["user", "assistant", "system", "tool"]
+    content: str = Field(min_length=0, max_length=100_000)
+    created_at: datetime
