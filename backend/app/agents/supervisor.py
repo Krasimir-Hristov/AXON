@@ -20,8 +20,8 @@ import logging
 
 from fastapi import HTTPException, status
 from langchain.chat_models import init_chat_model
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 
 from app.agents.state import AxonState
@@ -33,7 +33,18 @@ logger = logging.getLogger(__name__)
 HANDOFF_TOOL_NAME = "transfer_to_memory_agent"
 
 _SUPERVISOR_SYSTEM_PROMPT = """\
-You are AXON, a personal AI assistant. You help users with any task.
+You are AXON, a helpful personal AI assistant.
+
+Behaviour rules:
+- Always answer the user's question directly. Do NOT ask the user to clarify
+  the format of their request, do NOT propose templates, and do NOT echo
+  fragments of their message back as a "format". If a request is ambiguous,
+  pick the most reasonable interpretation and answer.
+- Reply in the same language the user wrote in (Bulgarian, English, etc.).
+  Bulgarian written with Latin letters (transliteration) is still Bulgarian —
+  reply in Bulgarian (Cyrillic).
+- Be concise by default. Use Markdown formatting where it helps readability
+  (lists, code fences, bold). Do not over-format casual replies.
 
 You have access to the user's long-term memory via `transfer_to_memory_agent`.
 Call it when the user:
@@ -60,35 +71,24 @@ def transfer_to_memory_agent() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Model singletons (lazily constructed on first invocation)
+# Model cache (keyed by model_id × has_tools to avoid rebuilding per request)
 # ---------------------------------------------------------------------------
 
-_routing_model: BaseChatModel | None = None  # with handoff tool
-_response_model: BaseChatModel | None = None  # without tools
+_model_cache: dict[tuple[str, bool], Runnable] = {}
 
 
-def _build_base_model() -> BaseChatModel:
-    return init_chat_model(
-        settings.llm_model,
-        model_provider="openai",
-        base_url=settings.openrouter_base_url,
-        api_key=settings.openrouter_api_key,
-        streaming=True,
-    )
-
-
-def _get_routing_model() -> BaseChatModel:
-    global _routing_model  # noqa: PLW0603
-    if _routing_model is None:
-        _routing_model = _build_base_model().bind_tools([transfer_to_memory_agent])
-    return _routing_model
-
-
-def _get_response_model() -> BaseChatModel:
-    global _response_model  # noqa: PLW0603
-    if _response_model is None:
-        _response_model = _build_base_model()
-    return _response_model
+def _get_model(model_id: str, with_tools: bool) -> Runnable:
+    key = (model_id, with_tools)
+    if key not in _model_cache:
+        base = init_chat_model(
+            model_id,
+            model_provider="openai",
+            base_url=settings.openrouter_base_url,
+            api_key=settings.openrouter_api_key,
+            streaming=True,
+        )
+        _model_cache[key] = base.bind_tools([transfer_to_memory_agent]) if with_tools else base
+    return _model_cache[key]
 
 
 # ---------------------------------------------------------------------------
@@ -96,13 +96,12 @@ def _get_response_model() -> BaseChatModel:
 # ---------------------------------------------------------------------------
 
 
-async def supervisor_node(state: AxonState) -> dict:
+async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
     """LangGraph node: supervisor LLM that routes or responds.
 
-    - First pass (no ToolMessage in history): uses the routing model (bound to
-      ``transfer_to_memory_agent``) so the LLM can signal a memory lookup.
-    - Second pass (ToolMessage present): uses the response model (no tools) and
-      prepends the retrieved memory context as a system message.
+    Uses model.astream() so that graph.astream_events("v2") can intercept
+    on_chat_model_stream events per token — needed for SSE token streaming.
+    The node still returns a single merged AIMessage to update graph state.
     """
     messages = list(state["messages"])
 
@@ -116,30 +115,49 @@ async def supervisor_node(state: AxonState) -> dict:
     current_turn = messages[last_human_idx + 1:]
     memory_done = any(isinstance(m, ToolMessage) for m in current_turn)
 
-    if memory_done:
-        # Inject memory context into the system prompt so the LLM can reference it.
-        if state.get("memory_context"):
-            context_lines = "\n".join(state["memory_context"])
-            messages = [
-                SystemMessage(
-                    content=(
-                        "The following context was retrieved from long-term memory "
-                        "and is relevant to the user's query:\n"
-                        f"{context_lines}"
-                    )
-                )
-            ] + messages
-        model = _get_response_model()
-    else:
-        model = _get_routing_model()
+    # Build the system prompt(s). The base AXON system prompt is always
+    # prepended so the model has a stable role definition; without it Grok and
+    # similar models try to "guess" the user's intent (e.g. interpreting a
+    # plain question as a template request).
+    # Always prepend the AXON system prompt. Memory context is already present
+    # in state["messages"] as a ToolMessage added by memory_agent_node — no
+    # need to duplicate it as a SystemMessage (which would elevate tool output
+    # to system-prompt priority).
+    messages = [SystemMessage(content=_SUPERVISOR_SYSTEM_PROMPT)] + messages
 
+    # On the second pass (after memory_agent ran) tools must NOT be bound, or
+    # the model may re-delegate in a loop. Otherwise bind the handoff tool so
+    # it can route to memory_agent.
+    model = _get_model(state["model_id"], with_tools=not memory_done)
+
+    # Stream the model response so that graph.astream_events("v2") in the
+    # chat service can pick up on_chat_model_stream events per token.
+    # Tool-call chunks (routing decisions) don't have content, so they're
+    # silently skipped — the client never sees internal routing.
+    collected: list[AIMessageChunk] = []
     try:
-        response = await model.ainvoke(messages)
+        logger.info("[supervisor] streaming model=%s with_tools=%s", state["model_id"], not memory_done)
+        async for chunk in model.astream(messages, config):
+            collected.append(chunk)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("Supervisor LLM call failed")
+        logger.exception("Supervisor LLM streaming failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="AI service unavailable",
         ) from exc
 
+    # Merge all chunks into a single message for the graph state.
+    if not collected:
+        logger.warning("[supervisor] model returned no chunks")
+        return {"messages": [AIMessage(content="")]}
+
+    response: AIMessageChunk = collected[0]
+    for c in collected[1:]:
+        response = response + c  # type: ignore[assignment]
+
+    logger.info(
+        "[supervisor] done, content_len=%d, has_tool_calls=%s",
+        len(str(response.content)),
+        bool(getattr(response, "tool_calls", None)),
+    )
     return {"messages": [response]}

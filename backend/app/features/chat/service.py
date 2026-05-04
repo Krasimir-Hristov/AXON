@@ -1,15 +1,13 @@
 """Chat service — async generator that streams orchestrator output as SSE frames."""
 
-import asyncio
 import hashlib
 import logging
 from collections.abc import AsyncIterator
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 
 from app.agents.orchestrator import graph
 from app.agents.state import AxonState
-from app.core.privacy import mask_pii
 from app.features.auth.schemas import UserSchema
 from app.features.chat.conversation_service import (
     get_or_create_conversation,
@@ -69,23 +67,11 @@ async def stream_chat(
 
     # ── 4. Emit start frame ───────────────────────────────────────
     yield _format(SSEEvent(type="start", content=conversation_id))
+    logger.info("[stream_chat] start frame sent, invoking graph with model=%s uid=%s", request.model_id, _uid_tag)
 
     # ── 5. Stream the graph ──────────────────────────────────────────
-    # Mask PII from history and current message before sending to the model.
-    # save_message above persists the original unmasked text as intended.
-    masked_message = await mask_pii(request.message)
-    if history:
-        masked_contents = await asyncio.gather(
-            *(mask_pii(str(msg.content)) for msg in history)
-        )
-        masked_history: list[BaseMessage] = [
-            type(msg)(content=mc) for msg, mc in zip(history, masked_contents)
-        ]
-    else:
-        masked_history = list(history)
-
     initial_state: AxonState = {
-        "messages": [*masked_history, HumanMessage(content=masked_message)],
+        "messages": [*history, HumanMessage(content=request.message)],
         "user_id": user.id,
         "model_id": request.model_id,
         "memory_context": [],
@@ -94,16 +80,28 @@ async def stream_chat(
     collected: list[str] = []
 
     try:
+        logger.info("[stream_chat] starting astream_events (v2)")
+        # supervisor_node uses model.astream() internally, which causes
+        # graph.astream_events(v2) to emit on_chat_model_stream for every token.
+        # We filter to the supervisor node only (skip memory_agent LLM calls).
         async for event in graph.astream_events(initial_state, version="v2"):
-            if event.get("event") != "on_chat_model_stream":
+            kind = event.get("event")
+            if kind != "on_chat_model_stream":
+                continue
+            # Only forward tokens from the supervisor node.
+            node = event.get("metadata", {}).get("langgraph_node")
+            if node != "supervisor":
                 continue
             chunk = event.get("data", {}).get("chunk")
             if chunk is None:
                 continue
             content = getattr(chunk, "content", "")
-            # AIMessageChunk.content can be a list of content blocks (e.g. for
-            # tool-using models). For the current graph it is a plain string;
-            # coerce to str defensively.
+            if isinstance(content, list):
+                # Some models return content as a list of blocks.
+                content = "".join(
+                    block.get("text", "") if isinstance(block, dict) else str(block)
+                    for block in content
+                )
             if not isinstance(content, str):
                 content = str(content)
             if not content:

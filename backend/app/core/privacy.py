@@ -13,6 +13,7 @@ import logging
 from threading import Lock
 
 from presidio_analyzer import AnalyzerEngine
+from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,17 @@ def _get_engines() -> tuple[AnalyzerEngine, AnonymizerEngine]:
             return _analyzer, _anonymizer
         logger.info("Initialising Presidio engines (loads spaCy en_core_web_sm)")
         try:
-            analyzer = AnalyzerEngine()
+            # Force the small spaCy model. Presidio's default is en_core_web_lg
+            # (~382 MB), which auto-downloads on first use and blocks the
+            # event loop worker for several minutes. en_core_web_sm is
+            # already installed via the project's spacy dependency tree.
+            nlp_engine = NlpEngineProvider(
+                nlp_configuration={
+                    "nlp_engine_name": "spacy",
+                    "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+                }
+            ).create_engine()
+            analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["en"])
             anonymizer = AnonymizerEngine()
         except Exception:
             logger.exception("Failed to initialise Presidio engines")
