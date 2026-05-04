@@ -34,11 +34,4 @@ per-file-ignores = { "app/features/**/router.py" = ["ARG001"] }
 # where catching everything is justified (e.g. JWT key decoding fallback).
 select = ["E", "F", "I", "UP", "B", "PL", "RUF"]
 
-[tool.pylint.messages-control]
-# Suppressions are applied inline with # pylint: disable=... comments
-# at the specific call sites rather than globally here, keeping the scope
-# of each suppression as narrow as possible.
-# W0613 (unused-argument) — SlowAPI _request params use underscore prefix.
-# W0718 (broad-exception-caught) — suppressed inline with # noqa: BLE001
-#   on each intentional broad-except block (graceful-degradation handlers).
 
