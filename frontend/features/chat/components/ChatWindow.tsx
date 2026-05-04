@@ -12,8 +12,14 @@ import { PenLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const ChatWindow = () => {
-  const { messages, isStreaming, error, sendMessage, stopStreaming, resetConversation } =
-    useChat();
+  const {
+    messages,
+    isStreaming,
+    error,
+    sendMessage,
+    stopStreaming,
+    resetConversation,
+  } = useChat();
   const { data: models } = useModels();
   const [selectedModelId, setSelectedModelId] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -25,10 +31,11 @@ const ChatWindow = () => {
     }
   }, [models, selectedModelId]);
 
-  // Auto-scroll to bottom on new messages / streaming tokens
+  // Auto-scroll to bottom on new messages / streaming tokens.
+  // Use instant scroll during streaming to avoid competing animations.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    bottomRef.current?.scrollIntoView({ behavior: isStreaming ? 'auto' : 'smooth' });
+  }, [messages, isStreaming]);
 
   const handleSend = (content: string) => {
     if (!selectedModelId) return;
@@ -64,9 +71,7 @@ const ChatWindow = () => {
         <div className='mx-auto max-w-3xl space-y-4 py-6'>
           {messages.length === 0 && (
             <div className='flex h-full flex-col items-center justify-center py-20 text-center'>
-              <p className='text-[#6b6b8a]'>
-                Start a conversation with AXON
-              </p>
+              <p className='text-[#6b6b8a]'>Start a conversation with AXON</p>
             </div>
           )}
           {messages.map((message) => (
@@ -81,7 +86,11 @@ const ChatWindow = () => {
 
       {/* Input */}
       <div className='mx-auto w-full max-w-3xl'>
-        <ChatInput onSend={handleSend} onStop={stopStreaming} isStreaming={isStreaming} />
+        <ChatInput
+          onSend={handleSend}
+          onStop={stopStreaming}
+          isStreaming={isStreaming}
+        />
       </div>
     </div>
   );

@@ -90,7 +90,7 @@ async def stream_chat(
                 continue
             # Only forward tokens from the supervisor node.
             node = event.get("metadata", {}).get("langgraph_node")
-            if node and node != "supervisor":
+            if node != "supervisor":
                 continue
             chunk = event.get("data", {}).get("chunk")
             if chunk is None:

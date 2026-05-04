@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
+import { z } from 'zod';
 import type { SSEEvent } from '@/features/chat/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
@@ -58,11 +59,18 @@ export interface StreamChatPayload {
   conversation_id?: string;
 }
 
+const _streamChatSchema = z.object({
+  message: z.string().min(1),
+  model_id: z.string().min(1),
+  conversation_id: z.string().optional(),
+});
+
 export async function streamChat(
   payload: StreamChatPayload,
   onEvent: (event: SSEEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  _streamChatSchema.parse(payload);
   const headers = await getAuthHeaders();
 
   const response = await fetch(`${API_BASE}/api/v1/chat/stream`, {

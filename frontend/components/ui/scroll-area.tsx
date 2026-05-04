@@ -1,22 +1,22 @@
-"use client"
+'use client';
 
-import * as React from "react"
-import { cn } from "@/lib/utils"
+import * as React from 'react';
+import { cn } from '@/lib/utils';
 
-function ScrollArea({
+const ScrollArea = ({
   className,
   children,
   ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
+}: React.HTMLAttributes<HTMLDivElement>) => {
   return (
     <div
-      data-slot="scroll-area"
-      className={cn("relative overflow-y-auto", className)}
+      data-slot='scroll-area'
+      className={cn('relative overflow-y-auto', className)}
       {...props}
     >
       {children}
     </div>
-  )
-}
+  );
+};
 
-export { ScrollArea }
+export { ScrollArea };

@@ -28,13 +28,19 @@ async def _get_jwks() -> dict:
     if _jwks_cache and (time.monotonic() - _jwks_cache_ts) < _JWKS_TTL:
         return _jwks_cache
     url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        _jwks_cache = resp.json()
-        _jwks_cache_ts = time.monotonic()
-        logger.info("JWKS refreshed from %s", url)
-        return _jwks_cache
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            _jwks_cache = resp.json()
+            _jwks_cache_ts = time.monotonic()
+            logger.info("JWKS refreshed from %s", url)
+            return _jwks_cache
+    except httpx.HTTPError as exc:
+        logger.exception("JWKS fetch failed for %s: %s", url, exc)
+        if _jwks_cache:
+            return _jwks_cache
+        return {}
 
 
 async def get_current_user(

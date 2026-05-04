@@ -119,21 +119,11 @@ async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
     # prepended so the model has a stable role definition; without it Grok and
     # similar models try to "guess" the user's intent (e.g. interpreting a
     # plain question as a template request).
-    system_messages: list[SystemMessage] = [SystemMessage(content=_SUPERVISOR_SYSTEM_PROMPT)]
-
-    if memory_done and state.get("memory_context"):
-        context_lines = "\n".join(state["memory_context"])
-        system_messages.append(
-            SystemMessage(
-                content=(
-                    "The following context was retrieved from long-term memory "
-                    "and is relevant to the user's query:\n"
-                    f"{context_lines}"
-                )
-            )
-        )
-
-    messages = system_messages + messages
+    # Always prepend the AXON system prompt. Memory context is already present
+    # in state["messages"] as a ToolMessage added by memory_agent_node — no
+    # need to duplicate it as a SystemMessage (which would elevate tool output
+    # to system-prompt priority).
+    messages = [SystemMessage(content=_SUPERVISOR_SYSTEM_PROMPT)] + messages
 
     # On the second pass (after memory_agent ran) tools must NOT be bound, or
     # the model may re-delegate in a loop. Otherwise bind the handoff tool so

@@ -32,7 +32,10 @@ const MAX_CHARS_PER_SECOND = 600;
 function computeRate(pendingLength: number, streamComplete: boolean): number {
   // When the network is done, drain quickly so user sees full reply soon.
   if (streamComplete) {
-    return Math.max(BASE_CHARS_PER_SECOND, Math.min(MAX_CHARS_PER_SECOND, pendingLength * 8));
+    return Math.max(
+      BASE_CHARS_PER_SECOND,
+      Math.min(MAX_CHARS_PER_SECOND, pendingLength * 8),
+    );
   }
   // While streaming, scale rate up gently as backlog grows so we never fall behind.
   const scaled = BASE_CHARS_PER_SECOND + Math.min(pendingLength * 2, 300);
@@ -151,7 +154,11 @@ export function useChat() {
 
       try {
         await streamChat(
-          { message: content, model_id: modelId, conversation_id: resolvedConvId },
+          {
+            message: content,
+            model_id: modelId,
+            conversation_id: resolvedConvId,
+          },
           (event: SSEEvent) => {
             if (event.type === 'start') {
               resolvedConvId = event.content;
@@ -221,10 +228,17 @@ export function useChat() {
   }, []);
 
   const resetConversation = useCallback(() => {
+    // Stop any active stream before clearing state.
+    abortRef.current?.abort();
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    buffersRef.current.clear();
+    setIsStreaming(false);
     setMessages([]);
     setConversationId(undefined);
     setError(null);
-    buffersRef.current.clear();
   }, []);
 
   return {
