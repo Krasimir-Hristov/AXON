@@ -18,7 +18,11 @@ from app.features.chat.router import router as chat_router
 from app.features.memory.router import router as memory_router
 from app.features.models.router import router as models_router
 
-logging.basicConfig(level=settings.log_level.upper())
+# basicConfig is a no-op when uvicorn has already added root handlers.
+# Explicitly set the level on every app.* logger instead.
+_log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
+logging.getLogger("app").setLevel(_log_level)
+logging.basicConfig(level=_log_level)
 logger = logging.getLogger(__name__)
 
 
