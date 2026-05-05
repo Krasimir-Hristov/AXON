@@ -7,8 +7,14 @@ import time
 import httpx
 from fastapi import HTTPException, status
 
+from pydantic import ValidationError
+
 from app.core.config import settings
-from app.features.models.schemas import ModelInfo, _RawOpenRouterResponse
+from app.features.models.schemas import (
+    ModelInfo,
+    _RawOpenRouterResponse,
+    _modality_to_category,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +33,9 @@ logger = logging.getLogger(__name__)
 _CACHE_TTL: float = 300.0  # 5 minutes in seconds
 _cache_data: list[ModelInfo] | None = None  # None = not yet populated
 _cache_ts: float = 0.0  # monotonic timestamp of last successful fetch
-_cache_lock: asyncio.Lock = asyncio.Lock()  # guards the slow path (one fetcher at a time)
+_cache_lock: asyncio.Lock = (
+    asyncio.Lock()
+)  # guards the slow path (one fetcher at a time)
 
 
 async def _fetch_models_from_openrouter() -> list[ModelInfo]:
@@ -70,7 +78,14 @@ async def _fetch_models_from_openrouter() -> list[ModelInfo]:
 
     # model_validate() parses the raw dict into our Pydantic schema.
     # Extra fields returned by OpenRouter are silently ignored.
-    raw = _RawOpenRouterResponse.model_validate(response.json())
+    try:
+        raw = _RawOpenRouterResponse.model_validate(response.json())
+    except (ValueError, ValidationError) as exc:
+        logger.warning("OpenRouter /models parse error: %s (status=%s)", exc, response.status_code)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Bad gateway: malformed OpenRouter response",
+        ) from exc
 
     # Transform _RawOpenRouterModel → public ModelInfo.
     # provider: split on "/" and take the first segment.
@@ -83,6 +98,7 @@ async def _fetch_models_from_openrouter() -> list[ModelInfo]:
             name=m.name,
             provider=m.id.split("/")[0] if "/" in m.id else "unknown",
             context_length=m.context_length,
+            category=_modality_to_category(m.architecture.modality),
         )
         for m in raw.data
     ]
