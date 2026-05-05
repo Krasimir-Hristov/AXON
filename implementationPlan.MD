@@ -181,16 +181,16 @@
 
 ## PHASE 7 — Frontend Chat UI
 
-- [ ] `features/chat/types.ts` — `Message`, `Conversation`, `ChatModel`
-- [ ] `lib/api.ts` — typed fetch wrapper with Supabase JWT header injection + try/catch
-- [ ] `features/chat/hooks/useChat.ts` — `fetch()` + `ReadableStream` + `eventsource-parser`, appends tokens to state
-- [ ] `features/chat/hooks/useModels.ts` — TanStack Query for `GET /api/v1/models`
-- [ ] `features/chat/components/ChatInput.tsx` — textarea + send button
-- [ ] `features/chat/components/MessageBubble.tsx` — `react-markdown` + `remark-gfm`
-- [ ] `features/chat/components/ModelSelector.tsx` — shadcn `<Select>` driven by `useModels`
-- [ ] `features/chat/components/ChatWindow.tsx` — message list + auto-scroll
-- [ ] `app/(dashboard)/chat/page.tsx` — assembles all components
-- [ ] **Verify:** Send message → tokens stream in real time, model switching works
+- [x] `features/chat/types.ts` — `Message`, `Conversation`, `ChatModel`
+- [x] `lib/api.ts` — typed fetch wrapper with Supabase JWT header injection + try/catch
+- [x] `features/chat/hooks/useChat.ts` — `fetch()` + `ReadableStream` + `eventsource-parser`, appends tokens to state
+- [x] `features/chat/hooks/useModels.ts` — TanStack Query for `GET /api/v1/models`
+- [x] `features/chat/components/ChatInput.tsx` — textarea + send button
+- [x] `features/chat/components/MessageBubble.tsx` — `react-markdown` + `remark-gfm`
+- [x] `features/chat/components/ModelSelector.tsx` — shadcn `<Select>` driven by `useModels`
+- [x] `features/chat/components/ChatWindow.tsx` — message list + auto-scroll
+- [x] `app/(dashboard)/chat/page.tsx` — assembles all components
+- [x] **Verify:** Send message → tokens stream in real time, model switching works
 
 ## PHASE 8 — Frontend Memory UI
 

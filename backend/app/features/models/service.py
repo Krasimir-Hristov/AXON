@@ -81,7 +81,9 @@ async def _fetch_models_from_openrouter() -> list[ModelInfo]:
     try:
         raw = _RawOpenRouterResponse.model_validate(response.json())
     except (ValueError, ValidationError) as exc:
-        logger.warning("OpenRouter /models parse error: %s (status=%s)", exc, response.status_code)
+        logger.warning(
+            "OpenRouter /models parse error: %s (status=%s)", exc, response.status_code
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Bad gateway: malformed OpenRouter response",
