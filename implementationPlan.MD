@@ -192,20 +192,6 @@
 - [ ] `app/(dashboard)/chat/page.tsx` — assembles all components
 - [ ] **Verify:** Send message → tokens stream in real time, model switching works
 
-## Git branch + CodeRabbit review
-
-- Създай нов branch от main (напр. `feat/chat-ui-models`)
-- Commit всички промени:
-  - backend: `category` field в ModelInfo (schemas.py, service.py)
-  - frontend types: `category` в ChatModel
-  - ModelSelector: search + provider grouping (без category pills)
-  - ChatWindow: AI robot face background (axon_background.png)
-  - Изтрит AiFaceBackground.tsx (cleanup)
-- Push branch-а
-- Отвори PR → CodeRabbit ще го прегледа автоматично
-
----
-
 ## PHASE 8 — Frontend Memory UI
 
 - [ ] `features/memory/types.ts`
