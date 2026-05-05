@@ -8,7 +8,11 @@ import httpx
 from fastapi import HTTPException, status
 
 from app.core.config import settings
-from app.features.models.schemas import ModelInfo, _RawOpenRouterResponse
+from app.features.models.schemas import (
+    ModelInfo,
+    _RawOpenRouterResponse,
+    _modality_to_category,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +31,9 @@ logger = logging.getLogger(__name__)
 _CACHE_TTL: float = 300.0  # 5 minutes in seconds
 _cache_data: list[ModelInfo] | None = None  # None = not yet populated
 _cache_ts: float = 0.0  # monotonic timestamp of last successful fetch
-_cache_lock: asyncio.Lock = asyncio.Lock()  # guards the slow path (one fetcher at a time)
+_cache_lock: asyncio.Lock = (
+    asyncio.Lock()
+)  # guards the slow path (one fetcher at a time)
 
 
 async def _fetch_models_from_openrouter() -> list[ModelInfo]:
@@ -83,6 +89,7 @@ async def _fetch_models_from_openrouter() -> list[ModelInfo]:
             name=m.name,
             provider=m.id.split("/")[0] if "/" in m.id else "unknown",
             context_length=m.context_length,
+            category=_modality_to_category(m.architecture.modality),
         )
         for m in raw.data
     ]

@@ -3,6 +3,7 @@ export interface ChatModel {
   name: string;
   provider: string;
   context_length: number;
+  category: string;
 }
 
 export interface Message {
