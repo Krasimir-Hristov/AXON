@@ -1,5 +1,7 @@
 """Models feature schemas — public ModelInfo and internal OpenRouter response parsing."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -10,7 +12,7 @@ class ModelInfo(BaseModel):
     name: str  # "GPT-4o" — human-readable name for the UI
     provider: str  # "openai" — extracted from the id prefix before "/"
     context_length: int  # 128000 — maximum tokens in the model's context window
-    category: str  # "Text", "Vision", "Image Generation", "Speech-to-Text", "Audio"
+    category: Literal["Text", "Vision", "Image Generation", "Speech-to-Text", "Audio"]
 
 
 class _RawArchitecture(BaseModel):

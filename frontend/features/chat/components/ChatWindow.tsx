@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sparkles, PenLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -51,13 +51,10 @@ const ChatWindow = () => {
     });
   }, [messages, isStreaming]);
 
-  const handleSend = useCallback(
-    (content: string) => {
-      if (!selectedModelId) return;
-      sendMessage(content, selectedModelId);
-    },
-    [selectedModelId, sendMessage],
-  );
+  function handleSend(content: string) {
+    if (!selectedModelId) return;
+    sendMessage(content, selectedModelId);
+  }
 
   const hasMessages = messages.length > 0;
 

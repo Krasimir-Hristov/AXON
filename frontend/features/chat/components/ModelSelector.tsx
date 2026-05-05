@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Search } from 'lucide-react';
 import { useModels } from '@/features/chat/hooks/useModels';
 import type { ChatModel } from '@/features/chat/types';
@@ -51,27 +51,24 @@ const ModelSelector = ({
   }, []);
 
   // Filter by search only
-  const filtered = useMemo(() => {
-    if (!models) return [];
-    const q = search.toLowerCase();
-    if (!q) return models;
-    return models.filter(
-      (m) =>
-        m.name.toLowerCase().includes(q) ||
-        m.provider.toLowerCase().includes(q) ||
-        m.id.toLowerCase().includes(q),
-    );
-  }, [models, search]);
+  const q = search.toLowerCase();
+  const filtered: ChatModel[] = !models
+    ? []
+    : !q
+      ? models
+      : models.filter(
+          (m) =>
+            m.name.toLowerCase().includes(q) ||
+            m.provider.toLowerCase().includes(q) ||
+            m.id.toLowerCase().includes(q),
+        );
 
   // Group filtered models by provider
-  const grouped = useMemo(() => {
-    const groups: Record<string, ChatModel[]> = {};
-    for (const m of filtered) {
-      if (!groups[m.provider]) groups[m.provider] = [];
-      groups[m.provider].push(m);
-    }
-    return groups;
-  }, [filtered]);
+  const grouped: Record<string, ChatModel[]> = {};
+  for (const m of filtered) {
+    if (!grouped[m.provider]) grouped[m.provider] = [];
+    grouped[m.provider].push(m);
+  }
 
   const handleSelect = (modelId: string) => {
     onModelChange(modelId);
@@ -96,7 +93,7 @@ const ModelSelector = ({
         aria-expanded={open}
       >
         <span className='max-w-40 truncate'>
-          {isLoading ? 'Loadingâ€¦' : (selectedModel?.name ?? 'Select model')}
+          {isLoading ? 'Loading…' : (selectedModel?.name ?? 'Select model')}
         </span>
         <ChevronDown
           className={`h-3.5 w-3.5 shrink-0 text-[#6b6b8a] transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
@@ -111,9 +108,10 @@ const ModelSelector = ({
             <Search className='h-3.5 w-3.5 shrink-0 text-[#6b6b8a]' />
             <input
               autoFocus
+              aria-label='Search models'
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder='Search modelsâ€¦'
+              placeholder='Search models…'
               className='flex-1 bg-transparent text-sm text-[#e4e1ed] placeholder:text-[#6b6b8a] focus:outline-none'
             />
           </div>
@@ -145,7 +143,7 @@ const ModelSelector = ({
                         <p className='text-[10px] text-[#6b6b8a]'>
                           {model.category}
                           {model.context_length > 0 &&
-                            ` Â· ${(model.context_length / 1000).toFixed(0)}k ctx`}
+                            ` · ${(model.context_length / 1000).toFixed(0)}k ctx`}
                         </p>
                       </div>
                       {model.id === selectedModelId && (

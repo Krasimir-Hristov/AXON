@@ -7,6 +7,8 @@ import time
 import httpx
 from fastapi import HTTPException, status
 
+from pydantic import ValidationError
+
 from app.core.config import settings
 from app.features.models.schemas import (
     ModelInfo,
@@ -76,7 +78,14 @@ async def _fetch_models_from_openrouter() -> list[ModelInfo]:
 
     # model_validate() parses the raw dict into our Pydantic schema.
     # Extra fields returned by OpenRouter are silently ignored.
-    raw = _RawOpenRouterResponse.model_validate(response.json())
+    try:
+        raw = _RawOpenRouterResponse.model_validate(response.json())
+    except (ValueError, ValidationError) as exc:
+        logger.warning("OpenRouter /models parse error: %s (status=%s)", exc, response.status_code)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Bad gateway: malformed OpenRouter response",
+        ) from exc
 
     # Transform _RawOpenRouterModel → public ModelInfo.
     # provider: split on "/" and take the first segment.
