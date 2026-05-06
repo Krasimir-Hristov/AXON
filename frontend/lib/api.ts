@@ -53,6 +53,57 @@ export async function apiFetchPublic<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/**
+ * Authenticated fetch for endpoints returning no JSON body (e.g. 204 No Content).
+ * Throws on non-ok status; otherwise resolves to `void`.
+ */
+export async function apiFetchVoid(
+  path: string,
+  init?: RequestInit,
+): Promise<void> {
+  const headers = await getAuthHeaders();
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { ...headers, ...(init?.headers as Record<string, string>) },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+}
+
+/**
+ * Authenticated multipart upload — does NOT set `Content-Type` so the browser
+ * adds the correct `multipart/form-data; boundary=…` automatically.
+ */
+export async function apiFetchMultipart<T>(
+  path: string,
+  formData: FormData,
+): Promise<T> {
+  const supabase = createClient();
+  const { error } = await supabase.auth.getUser();
+  if (error) throw new Error('Not authenticated');
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error('Not authenticated');
+  }
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.access_token}` },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 export interface StreamChatPayload {
   message: string;
   model_id: string;

@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Sparkles, PenLine } from 'lucide-react';
+import { Sparkles, PenLine, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 import MessageBubble from '@/features/chat/components/MessageBubble';
@@ -75,6 +76,14 @@ const ChatWindow = () => {
             onModelChange={setSelectedModelId}
             disabled={isStreaming}
           />
+          <Link
+            href='/memory'
+            className='inline-flex h-9 w-9 items-center justify-center rounded-md text-[#6b6b8a] transition-colors hover:bg-[#2a2a3d] hover:text-[#e4e1ed]'
+            aria-label='Memory'
+            title='Memory'
+          >
+            <Brain className='h-4 w-4' />
+          </Link>
           <Button
             onClick={resetConversation}
             size='icon'
