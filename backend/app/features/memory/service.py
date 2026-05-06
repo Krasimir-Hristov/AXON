@@ -1,19 +1,22 @@
 """Memory feature — pipeline orchestration.
 
-Write path:  plaintext → mask_pii → embed(masked) → encrypt(plaintext) → insert
+Write path:  plaintext → embed → encrypt(plaintext) → insert
 Read path:   row → decrypt(content_encrypted) → MemoryEntry
-Search path: query → mask_pii → embed → match_memories RPC → decrypt
+Search path: query → embed → match_memories RPC → decrypt
 File path:   upload → parse → chunk → for each chunk: write path
+
+Note: PII masking has been intentionally removed from the embedding pipeline.
+Embeddings are computed directly from the original text so that semantic
+similarity search works correctly across all languages and scripts.
+The content_encrypted field still stores the encrypted original text.
 """
 
-import asyncio
 import logging
 from pathlib import PurePosixPath
 from typing import Any
 from uuid import UUID
 
 from app.core.crypto import decrypt, encrypt
-from app.core.privacy import mask_pii
 from app.db import embeddings as db
 from app.features.memory import ingest
 from app.features.memory.schemas import (
@@ -40,14 +43,13 @@ async def create_memory(
     content: str,
     metadata: dict[str, Any],
 ) -> MemoryEntry:
-    """Mask PII, embed the masked text, encrypt the original, persist."""
-    masked = await mask_pii(content)
-    embedding = await embed_safely(masked)
+    """Embed the original text, encrypt it, and persist."""
+    embedding = await embed_safely(content)
     ciphertext = encrypt(content)
     row = await db.insert_memory(
         user_id=user_id,
         content_encrypted=ciphertext,
-        content_masked=masked,
+        content_masked=content,
         embedding=embedding,
         metadata=metadata,
     )
@@ -77,8 +79,7 @@ async def search_memories(
     threshold: float = 0.7,
     limit: int = 5,
 ) -> list[MemorySearchResult]:
-    masked_q = await mask_pii(query)
-    q_embedding = await embed_safely(masked_q)
+    q_embedding = await embed_safely(query)
     rows = await db.match_memories(
         user_id=user_id,
         query_embedding=q_embedding,
@@ -127,22 +128,8 @@ async def ingest_file(
     if not chunks:
         return FileUploadResult(file_name=filename, chunks_created=0, memory_ids=[])
 
-    # 1. Mask all chunks. Each `mask_pii` call dispatches Presidio work to
-    # the default thread pool (32 workers); a 500-chunk upload from a single
-    # user could otherwise starve the pool for everyone else. Bound the
-    # in-flight count with a small semaphore.
-    _MASK_CONCURRENCY = 8
-    sem = asyncio.Semaphore(_MASK_CONCURRENCY)
-
-    async def _mask(chunk: str) -> str:
-        async with sem:
-            return await mask_pii(chunk)
-
-    masked_chunks = await asyncio.gather(*(_mask(c) for c in chunks))
-
-    # 2. Embed everything in one batched call. `asyncio.gather` already
-    # returns a list, so no extra wrapping is needed.
-    vectors = await db.embed_texts(masked_chunks)
+    # 1. Embed all chunks in one batched call (single HTTP round-trip).
+    vectors = await db.embed_texts(chunks)
 
     suffix = PurePosixPath(filename).suffix.lower()
     base_metadata: dict[str, Any] = {
@@ -152,17 +139,15 @@ async def ingest_file(
         "total_chunks": len(chunks),
     }
 
-    # 3. Encrypt + insert sequentially. Failures on individual rows are
+    # 2. Encrypt + insert sequentially. Failures on individual rows are
     # logged; we keep going so a single bad row doesn't lose the whole upload.
     ids: list[UUID] = []
-    for index, (chunk, masked, vector) in enumerate(
-        zip(chunks, masked_chunks, vectors, strict=True)
-    ):
+    for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
         try:
             row = await db.insert_memory(
                 user_id=user_id,
                 content_encrypted=encrypt(chunk),
-                content_masked=masked,
+                content_masked=chunk,
                 embedding=vector,
                 metadata={**base_metadata, "chunk_index": index},
             )

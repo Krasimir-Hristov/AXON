@@ -28,13 +28,14 @@ class SSEEvent(BaseModel):
         data: {"type":"...","content":"..."}\\n\\n
 
     Frame types:
-        start  — first frame; content = conversation_id (UUID string)
-        token  — incremental LLM token
-        error  — non-fatal upstream error; chat ends after this
-        done   — terminal frame; always emitted in finally block
+        start    — first frame; content = conversation_id (UUID string)
+        token    — incremental LLM token
+        tool_use — memory agent started; content = human-readable status label
+        error    — non-fatal upstream error; chat ends after this
+        done     — terminal frame; always emitted in finally block
     """
 
-    type: Literal["start", "token", "error", "done"]
+    type: Literal["start", "token", "tool_use", "error", "done"]
     content: str = ""
 
 

@@ -50,7 +50,7 @@ async def memory_agent_node(state: AxonState) -> dict:
         results = await service.search_memories(
             user_id=state["user_id"],
             query=query,
-            threshold=0.6,
+            threshold=0.35,
             limit=5,
         )
     except Exception:  # noqa: BLE001
@@ -63,11 +63,7 @@ async def memory_agent_node(state: AxonState) -> dict:
     # -- Build ToolMessage to keep message history valid -------------------
     messages: list[ToolMessage] = []
     if tool_call_id:
-        content = (
-            "\n".join(snippets)
-            if snippets
-            else "No relevant memories found."
-        )
+        content = "\n".join(snippets) if snippets else "No relevant memories found."
         messages.append(
             ToolMessage(
                 content=content,
