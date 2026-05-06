@@ -194,10 +194,16 @@
 
 ## PHASE 8 — Frontend Memory UI
 
-- [ ] `features/memory/types.ts`
-- [ ] `features/memory/hooks/useMemory.ts` — TanStack Query CRUD
-- [ ] `features/memory/components/MemoryView.tsx` — list + delete
-- [ ] `app/(dashboard)/memory/page.tsx`
+- [x] `features/memory/types.ts`
+- [x] `features/memory/hooks/useMemory.ts` — TanStack Query CRUD
+- [x] `features/memory/components/MemoryView.tsx` — list + delete
+- [x] `features/memory/components/MemoryItem.tsx` — single row + inline confirm-delete
+- [x] `features/memory/components/MemoryCreateForm.tsx` — textarea + save
+- [x] `features/memory/components/MemoryUploader.tsx` — file/drag-drop, 10 MB client check
+- [x] `features/memory/components/MemorySearchBar.tsx` — query + threshold + limit
+- [x] `lib/api.ts` — added `apiFetchVoid` (DELETE 204) + `apiFetchMultipart` (uploads)
+- [x] `features/chat/components/ChatWindow.tsx` — added Memory link in header
+- [x] `app/(dashboard)/memory/page.tsx`
 - [ ] **Verify:** Entries from chat appear in the list; delete works
 
 ---

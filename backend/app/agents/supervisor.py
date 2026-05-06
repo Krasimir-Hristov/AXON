@@ -51,9 +51,11 @@ Call it when the user:
 - Asks about themselves, personal preferences, or past interactions.
 - References something they may have stored or shared previously.
 - Uses phrases like "what do you know about me", "do you remember", "I told you".
+- Asks about content from documents, files, or notes they have uploaded or stored.
+- Asks a question where stored personal notes or uploaded files might contain the answer.
 
 Do NOT call `transfer_to_memory_agent` for:
-- General knowledge, math, coding, or writing requests with no personal component.
+- Pure general knowledge, math, coding, or writing requests that have no connection to anything the user could have stored.
 - Casual greetings or questions answerable from the conversation alone.
 """
 
