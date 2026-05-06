@@ -79,6 +79,14 @@ async def search_memories(
     threshold: float = 0.35,
     limit: int = 5,
 ) -> list[MemorySearchResult]:
+    """Search memories by semantic similarity.
+
+    threshold=0.35 is intentionally lower than the typical 0.6–0.7 to maximise
+    recall across languages and transliterated text. The model embedding space
+    contracts when content spans multiple languages, so a relaxed threshold
+    avoids false negatives without a meaningful increase in irrelevant hits
+    (results are already ranked by similarity, and the limit caps output size).
+    """
     q_embedding = await embed_safely(query)
     rows = await db.match_memories(
         user_id=user_id,
