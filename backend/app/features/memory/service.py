@@ -76,7 +76,7 @@ async def search_memories(
     *,
     user_id: str,
     query: str,
-    threshold: float = 0.7,
+    threshold: float = 0.35,
     limit: int = 5,
 ) -> list[MemorySearchResult]:
     q_embedding = await embed_safely(query)

@@ -230,6 +230,7 @@ export function useChat() {
       prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
     );
     setIsStreaming(false);
+    setToolStatus(null);
   }, []);
 
   const resetConversation = useCallback(() => {
@@ -244,6 +245,7 @@ export function useChat() {
     setMessages([]);
     setConversationId(undefined);
     setError(null);
+    setToolStatus(null);
   }, []);
 
   return {
