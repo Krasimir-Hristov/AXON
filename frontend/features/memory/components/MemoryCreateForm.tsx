@@ -45,6 +45,7 @@ const MemoryCreateForm = () => {
         onChange={(e) => setContent(e.target.value)}
         placeholder='Anything you want AXON to remember…'
         rows={3}
+        maxLength={MAX_LENGTH}
         className='resize-none border-[#2a2a3d] bg-[#13131b] text-sm text-[#e4e1ed] placeholder:text-[#6b6b8a] focus-visible:ring-[#494bd6]'
       />
       <div className='mt-2 flex items-center justify-between gap-3'>

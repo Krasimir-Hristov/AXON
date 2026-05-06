@@ -81,7 +81,7 @@ const MemoryItem = ({ entry, similarity }: MemoryItemProps) => {
           className={
             confirming
               ? 'text-[#ffb4ab] hover:bg-[#ffb4ab]/10'
-              : 'text-[#6b6b8a] opacity-0 hover:bg-[#2a2a3d] hover:text-[#ffb4ab] group-hover:opacity-100'
+              : 'text-[#6b6b8a] opacity-0 hover:bg-[#2a2a3d] hover:text-[#ffb4ab] group-hover:opacity-100 focus-visible:opacity-100 focus:opacity-100'
           }
           aria-label={confirming ? 'Confirm delete' : 'Delete memory'}
           title={confirming ? 'Click again to confirm' : 'Delete'}

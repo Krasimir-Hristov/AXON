@@ -7,6 +7,12 @@ import { Button } from '@/components/ui/button';
 import { useUploadMemory } from '@/features/memory/hooks/useMemory';
 
 const ALLOWED_EXTENSIONS = ['.txt', '.md', '.pdf', '.docx'];
+const ALLOWED_MIME_TYPES = new Set([
+  'text/plain',
+  'text/markdown',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB — must match backend limit.
 
 const MemoryUploader = () => {
@@ -15,9 +21,14 @@ const MemoryUploader = () => {
   const [clientError, setClientError] = useState<string | null>(null);
 
   const handleFile = (file: File) => {
+    if (uploadMutation.isPending) return;
     setClientError(null);
     const lower = file.name.toLowerCase();
     if (!ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext))) {
+      setClientError(`Unsupported file type. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`);
+      return;
+    }
+    if (file.type && !ALLOWED_MIME_TYPES.has(file.type)) {
       setClientError(`Unsupported file type. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`);
       return;
     }

@@ -13,6 +13,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
+import { z } from 'zod';
 
 import {
   apiFetch,
@@ -27,6 +28,17 @@ import type {
   MemorySearchResult,
 } from '@/features/memory/types';
 
+const _createPayloadSchema = z.object({
+  content: z.string().min(1).max(20_000),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+const _searchPayloadSchema = z.object({
+  query: z.string().min(1).max(1_000),
+  limit: z.number().int().min(1).max(20).optional(),
+  threshold: z.number().min(0).max(1).optional(),
+});
+
 const MEMORY_LIST_KEY = ['memory', 'list'] as const;
 
 export function useMemoryList() {
@@ -40,11 +52,13 @@ export function useMemoryList() {
 export function useCreateMemory() {
   const qc = useQueryClient();
   return useMutation<MemoryEntry, Error, MemoryCreatePayload>({
-    mutationFn: (payload) =>
-      apiFetch<MemoryEntry>('/api/v1/memory', {
+    mutationFn: (payload) => {
+      _createPayloadSchema.parse(payload);
+      return apiFetch<MemoryEntry>('/api/v1/memory', {
         method: 'POST',
         body: JSON.stringify(payload),
-      }),
+      });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: MEMORY_LIST_KEY });
     },
@@ -66,11 +80,13 @@ export function useDeleteMemory() {
 
 export function useMemorySearch() {
   return useMutation<MemorySearchResult[], Error, MemorySearchPayload>({
-    mutationFn: (payload) =>
-      apiFetch<MemorySearchResult[]>('/api/v1/memory/search', {
+    mutationFn: (payload) => {
+      _searchPayloadSchema.parse(payload);
+      return apiFetch<MemorySearchResult[]>('/api/v1/memory/search', {
         method: 'POST',
         body: JSON.stringify(payload),
-      }),
+      });
+    },
   });
 }
 
