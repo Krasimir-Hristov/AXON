@@ -204,7 +204,62 @@
 - [x] `lib/api.ts` — added `apiFetchVoid` (DELETE 204) + `apiFetchMultipart` (uploads)
 - [x] `features/chat/components/ChatWindow.tsx` — added Memory link in header
 - [x] `app/(dashboard)/memory/page.tsx`
-- [ ] **Verify:** Entries from chat appear in the list; delete works
+- [x] **Verify:** Entries from chat appear in the list; delete works
+
+---
+
+## PHASE 9 — Frontend Chat History Visualisation
+
+> **Goal:** Let the user browse past conversations from the sidebar, load a conversation and continue it, and delete old ones — without leaving `/chat`.
+
+### 9A — API layer (`lib/api.ts`)
+
+- [ ] Add `listConversations()` — `GET /api/v1/chat/conversations` → `ConversationOut[]`
+- [ ] Add `getConversationMessages(id)` — `GET /api/v1/chat/conversations/{id}/messages` → `MessageOut[]`
+- [ ] Add `deleteConversation(id)` — `DELETE /api/v1/chat/conversations/{id}` → `void` (use `apiFetchVoid`)
+- [ ] Add TypeScript types `ConversationOut` and `MessageOut` to `features/chat/types.ts`
+
+### 9B — TanStack Query hooks (`features/chat/hooks/useConversations.ts`)
+
+- [ ] `useConversations()` — query `listConversations`; stale after 30 s
+- [ ] `useConversationMessages(id)` — query `getConversationMessages(id)`; enabled only when `id` is set
+- [ ] `useDeleteConversation()` — mutation `deleteConversation`; on success invalidate `useConversations` + clear active conversation if deleted
+
+### 9C — Sidebar component (`features/chat/components/ConversationSidebar.tsx`)
+
+- [ ] Collapsible panel (hidden on mobile, 260 px on desktop)
+- [ ] "New chat" button at top → clears `conversationId` in `useChat`
+- [ ] List of past conversations ordered by `updated_at DESC`
+  - Each row shows: title (truncated 1 line), relative time (`date-fns/formatDistanceToNow`)
+  - Active conversation highlighted
+  - Hover → show delete icon (inline confirm: click once to mark red, second click deletes)
+- [ ] Loading skeleton (3 placeholder rows) while `useConversations` is fetching
+- [ ] Empty state: "No conversations yet"
+
+### 9D — Load conversation into chat (`features/chat/hooks/useChat.ts`)
+
+- [ ] Export `loadConversation(id: string)` from `useChat` — sets `conversationId` + seeds `messages` state from `useConversationMessages` data
+- [ ] When a conversation is selected in the sidebar, call `loadConversation` and scroll to bottom
+
+### 9E — Wire sidebar into `ChatWindow.tsx`
+
+- [ ] Add `ConversationSidebar` to the left of the message list
+- [ ] Pass `activeConversationId`, `onSelect` and `onNew` callbacks down
+- [ ] On mobile: hamburger icon in header toggles sidebar visibility (`useState`)
+
+### 9F — Accessibility & UX polish
+
+- [ ] Sidebar items are `<button>` elements with `aria-current="page"` on the active one
+- [ ] Delete confirmation uses `aria-label="Delete conversation"`
+- [ ] Keyboard: `Escape` closes sidebar on mobile
+
+### Verification
+
+- [ ] Open `/chat` → sidebar lists past conversations
+- [ ] Click a conversation → messages load; `conversationId` in `useChat` updated
+- [ ] Send a new message in loaded conversation → appended correctly; `updated_at` bumps to top
+- [ ] "New chat" → blank input, no conversation selected
+- [ ] Delete conversation → removed from list; if active → chat resets to new
 
 ---
 
@@ -213,6 +268,4 @@
 - [ ] Google OAuth → JWT validated on `/api/v1/auth/me` → 200
 - [ ] `GET /api/v1/models` → JSON list of OpenRouter models
 - [ ] `POST /api/v1/chat/stream` → tokens stream in real time in chat UI
-- [ ] `POST /api/v1/memory` → DB stores masked version, UI shows decrypted original
-- [ ] PII test: store "My name is John, call me at 555-1234" → DB shows `<PERSON>`, `<PHONE_NUMBER>`
 - [ ] Chat with memory context → orchestrator retrieves relevant memory via tool, response includes personal context
