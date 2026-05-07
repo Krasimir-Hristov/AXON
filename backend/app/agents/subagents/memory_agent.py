@@ -13,7 +13,7 @@ Searches long-term memory directly (no extra LLM call needed for retrieval) and:
 import hashlib
 import logging
 
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.agents.state import AxonState
 from app.agents.supervisor import HANDOFF_TOOL_NAME
@@ -34,12 +34,24 @@ async def memory_agent_node(state: AxonState) -> dict:
         (m for m in reversed(state["messages"]) if isinstance(m, HumanMessage)),
         None,
     )
-    query = last_human.content if last_human else ""
+    raw = last_human.content if last_human else ""
+    query: str = (
+        raw
+        if isinstance(raw, str)
+        else " ".join(
+            p
+            if isinstance(p, str)
+            else p.get("text", "")
+            if isinstance(p, dict)
+            else getattr(p, "text", "")
+            for p in raw
+        )
+    )
 
     # -- Resolve the tool_call_id so the ToolMessage closes the loop -------
     tool_call_id: str | None = None
     last_msg = state["messages"][-1] if state["messages"] else None
-    if last_msg and getattr(last_msg, "tool_calls", None):
+    if isinstance(last_msg, AIMessage) and last_msg.tool_calls:
         for tc in last_msg.tool_calls:
             if tc["name"] == HANDOFF_TOOL_NAME:
                 tool_call_id = tc["id"]
@@ -50,10 +62,10 @@ async def memory_agent_node(state: AxonState) -> dict:
         results = await service.search_memories(
             user_id=state["user_id"],
             query=query,
-            threshold=0.35,
-            limit=5,
+            threshold=state.get("memory_threshold", 0.35),
+            limit=state.get("memory_limit", 5),
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         query_hash = hashlib.sha256(query.encode()).hexdigest()[:8]
         logger.exception("memory_agent_node: search failed (query_hash=%s)", query_hash)
         results = []

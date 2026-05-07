@@ -81,6 +81,8 @@ async def stream_chat(
         "user_id": user.id,
         "model_id": request.model_id,
         "memory_context": [],
+        "memory_threshold": request.memory_threshold,
+        "memory_limit": request.memory_limit,
     }
 
     collected: list[str] = []

@@ -19,6 +19,8 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=10_000)
     model_id: str = Field(min_length=1, max_length=200)
     conversation_id: UUID | None = None
+    memory_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
+    memory_limit: int = Field(default=5, ge=1, le=20)
 
 
 class SSEEvent(BaseModel):

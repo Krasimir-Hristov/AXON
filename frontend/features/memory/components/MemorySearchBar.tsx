@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -11,11 +11,25 @@ interface MemorySearchBarProps {
   onResults: (results: MemorySearchResult[] | null) => void;
 }
 
+const STORAGE_KEY_THRESHOLD = 'axon:memory:threshold';
+const STORAGE_KEY_LIMIT = 'axon:memory:limit';
+
 const MemorySearchBar = ({ onResults }: MemorySearchBarProps) => {
   const [query, setQuery] = useState('');
-  const [limit, setLimit] = useState(5);
-  const [threshold, setThreshold] = useState(0.7);
+  const [limit, setLimit] = useState<number>(5);
+  const [threshold, setThreshold] = useState<number>(0.35);
   const searchMutation = useMemorySearch();
+
+  useEffect(() => {
+    const storedLimit = Number(localStorage.getItem(STORAGE_KEY_LIMIT));
+    if (Number.isFinite(storedLimit) && storedLimit >= 1 && storedLimit <= 20) {
+      setLimit(storedLimit);
+    }
+    const storedThreshold = Number(localStorage.getItem(STORAGE_KEY_THRESHOLD));
+    if (Number.isFinite(storedThreshold) && storedThreshold >= 0 && storedThreshold <= 1) {
+      setThreshold(storedThreshold);
+    }
+  }, []);
 
   const trimmed = query.trim();
   const canSearch = trimmed.length > 0 && !searchMutation.isPending;
@@ -78,7 +92,11 @@ const MemorySearchBar = ({ onResults }: MemorySearchBarProps) => {
             max={1}
             step={0.05}
             value={threshold}
-            onChange={(e) => setThreshold(Number(e.target.value))}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setThreshold(v);
+              localStorage.setItem(STORAGE_KEY_THRESHOLD, String(v));
+            }}
             className='accent-[#494bd6]'
             aria-label='Similarity threshold'
           />
@@ -90,7 +108,11 @@ const MemorySearchBar = ({ onResults }: MemorySearchBarProps) => {
             min={1}
             max={20}
             value={limit}
-            onChange={(e) => setLimit(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+            onChange={(e) => {
+              const v = Math.max(1, Math.min(20, Number(e.target.value) || 1));
+              setLimit(v);
+              localStorage.setItem(STORAGE_KEY_LIMIT, String(v));
+            }}
             className='w-14 rounded-md border border-[#2a2a3d] bg-[#13131b] px-2 py-1 text-[#e4e1ed] focus:outline-none focus:ring-1 focus:ring-[#494bd6]'
             aria-label='Result limit'
           />
