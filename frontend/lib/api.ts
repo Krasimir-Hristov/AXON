@@ -11,7 +11,10 @@ async function _readErrorBody(response: Response): Promise<string> {
     const detail = json['detail'];
     return typeof detail === 'string' ? detail : JSON.stringify(json);
   } catch {
-    return response.clone().text().catch(() => '');
+    return response
+      .clone()
+      .text()
+      .catch(() => '');
   }
 }
 
@@ -58,7 +61,9 @@ export async function apiFetch<T>(
 
   if (!response.ok) {
     const body = await _readErrorBody(response);
-    throw new Error(`HTTP ${response.status}: ${response.statusText}${body ? ` — ${body}` : ''}`);
+    throw new Error(
+      `HTTP ${response.status}: ${response.statusText}${body ? ` — ${body}` : ''}`,
+    );
   }
 
   return response.json() as Promise<T>;
@@ -69,7 +74,9 @@ export async function apiFetchPublic<T>(path: string): Promise<T> {
 
   if (!response.ok) {
     const body = await _readErrorBody(response);
-    throw new Error(`HTTP ${response.status}: ${response.statusText}${body ? ` — ${body}` : ''}`);
+    throw new Error(
+      `HTTP ${response.status}: ${response.statusText}${body ? ` — ${body}` : ''}`,
+    );
   }
 
   return response.json() as Promise<T>;
@@ -91,7 +98,9 @@ export async function apiFetchVoid(
 
   if (!response.ok) {
     const body = await _readErrorBody(response);
-    throw new Error(`HTTP ${response.status}: ${response.statusText}${body ? ` — ${body}` : ''}`);
+    throw new Error(
+      `HTTP ${response.status}: ${response.statusText}${body ? ` — ${body}` : ''}`,
+    );
   }
 }
 
@@ -112,7 +121,9 @@ export async function apiFetchMultipart<T>(
 
   if (!response.ok) {
     const body = await _readErrorBody(response);
-    throw new Error(`HTTP ${response.status}: ${response.statusText}${body ? ` — ${body}` : ''}`);
+    throw new Error(
+      `HTTP ${response.status}: ${response.statusText}${body ? ` — ${body}` : ''}`,
+    );
   }
 
   return response.json() as Promise<T>;
@@ -122,12 +133,16 @@ export interface StreamChatPayload {
   message: string;
   model_id: string;
   conversation_id?: string;
+  memory_threshold?: number;
+  memory_limit?: number;
 }
 
 const _streamChatSchema = z.object({
   message: z.string().min(1),
   model_id: z.string().min(1),
   conversation_id: z.string().optional(),
+  memory_threshold: z.number().min(0).max(1).optional(),
+  memory_limit: z.number().int().min(1).max(20).optional(),
 });
 
 export async function streamChat(

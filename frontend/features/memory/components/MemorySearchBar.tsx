@@ -11,10 +11,19 @@ interface MemorySearchBarProps {
   onResults: (results: MemorySearchResult[] | null) => void;
 }
 
+const STORAGE_KEY_THRESHOLD = 'axon:memory:threshold';
+const STORAGE_KEY_LIMIT = 'axon:memory:limit';
+
 const MemorySearchBar = ({ onResults }: MemorySearchBarProps) => {
   const [query, setQuery] = useState('');
-  const [limit, setLimit] = useState(5);
-  const [threshold, setThreshold] = useState(0.7);
+  const [limit, setLimit] = useState<number>(() => {
+    const stored = localStorage.getItem(STORAGE_KEY_LIMIT);
+    return stored ? Math.max(1, Math.min(20, Number(stored))) : 5;
+  });
+  const [threshold, setThreshold] = useState<number>(() => {
+    const stored = localStorage.getItem(STORAGE_KEY_THRESHOLD);
+    return stored ? Math.max(0, Math.min(1, Number(stored))) : 0.35;
+  });
   const searchMutation = useMemorySearch();
 
   const trimmed = query.trim();
@@ -78,7 +87,11 @@ const MemorySearchBar = ({ onResults }: MemorySearchBarProps) => {
             max={1}
             step={0.05}
             value={threshold}
-            onChange={(e) => setThreshold(Number(e.target.value))}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setThreshold(v);
+              localStorage.setItem(STORAGE_KEY_THRESHOLD, String(v));
+            }}
             className='accent-[#494bd6]'
             aria-label='Similarity threshold'
           />
@@ -90,7 +103,11 @@ const MemorySearchBar = ({ onResults }: MemorySearchBarProps) => {
             min={1}
             max={20}
             value={limit}
-            onChange={(e) => setLimit(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+            onChange={(e) => {
+              const v = Math.max(1, Math.min(20, Number(e.target.value) || 1));
+              setLimit(v);
+              localStorage.setItem(STORAGE_KEY_LIMIT, String(v));
+            }}
             className='w-14 rounded-md border border-[#2a2a3d] bg-[#13131b] px-2 py-1 text-[#e4e1ed] focus:outline-none focus:ring-1 focus:ring-[#494bd6]'
             aria-label='Result limit'
           />

@@ -20,7 +20,6 @@ import logging
 
 from fastapi import HTTPException, status
 from langchain.chat_models import init_chat_model
-from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
@@ -28,6 +27,7 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
+from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import tool
 
 from app.agents.state import AxonState
@@ -48,9 +48,9 @@ Behaviour rules:
   pick the most reasonable interpretation and answer.
 - ALWAYS reply in the EXACT language the user wrote their message in.
   If the user wrote in English → respond in English, no exceptions.
-  If the user wrote in Bulgarian (Cyrillic or Latin transliteration) → respond in Bulgarian (Cyrillic).
-  The language of retrieved memory context or documents does NOT affect your response language.
-  Detect the user's language from their message only, not from any other source.
+  If the user wrote in Bulgarian (Cyrillic or Latin) → respond in Bulgarian (Cyrillic).
+  The language of retrieved memory context or documents does NOT affect your
+  response language. Detect the user's language from their message only.
 - Be concise by default. Use Markdown formatting where it helps readability
   (lists, code fences, bold). Do not over-format casual replies.
 
@@ -61,7 +61,7 @@ whenever the user's message matches ANY of the following:
 
 1. The user explicitly asks what you know, remember, or have stored about them
    — e.g. "what do you know about me", "what information do you have",
-   "kakvo znaeш za men", "kakva informaciq imaш", "что ты знаешь обо мне".
+   "kakvo znaeш za men", "kakva informaciq imaш".
 2. The user asks about a document, file, note, or PDF they have uploaded.
 3. The user references a past event, preference, or fact they may have shared
    — e.g. "do you remember", "I told you", "as I mentioned".
@@ -102,7 +102,7 @@ def transfer_to_memory_agent() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Model cache (keyed by model_id × has_tools to avoid rebuilding per request)
+# Model cache (keyed by model_id x has_tools to avoid rebuilding per request)
 # ---------------------------------------------------------------------------
 
 _model_cache: dict[tuple[str, bool], Runnable] = {}
@@ -160,7 +160,7 @@ async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
     # in state["messages"] as a ToolMessage added by memory_agent_node — no
     # need to duplicate it as a SystemMessage (which would elevate tool output
     # to system-prompt priority).
-    messages = [SystemMessage(content=_SUPERVISOR_SYSTEM_PROMPT)] + messages
+    messages = [SystemMessage(content=_SUPERVISOR_SYSTEM_PROMPT), *messages]
 
     # On the second pass (after memory_agent ran) tools must NOT be bound, or
     # the model may re-delegate in a loop. Otherwise bind the handoff tool so
@@ -180,7 +180,7 @@ async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
         )
         async for chunk in model.astream(messages, config):
             collected.append(chunk)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.exception("Supervisor LLM streaming failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

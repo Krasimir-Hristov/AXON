@@ -25,3 +25,5 @@ class AxonState(TypedDict):
     user_id: str
     model_id: str
     memory_context: list[str]
+    memory_threshold: float
+    memory_limit: int
