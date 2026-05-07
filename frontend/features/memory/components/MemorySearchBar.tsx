@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -16,15 +16,20 @@ const STORAGE_KEY_LIMIT = 'axon:memory:limit';
 
 const MemorySearchBar = ({ onResults }: MemorySearchBarProps) => {
   const [query, setQuery] = useState('');
-  const [limit, setLimit] = useState<number>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY_LIMIT);
-    return stored ? Math.max(1, Math.min(20, Number(stored))) : 5;
-  });
-  const [threshold, setThreshold] = useState<number>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY_THRESHOLD);
-    return stored ? Math.max(0, Math.min(1, Number(stored))) : 0.35;
-  });
+  const [limit, setLimit] = useState<number>(5);
+  const [threshold, setThreshold] = useState<number>(0.35);
   const searchMutation = useMemorySearch();
+
+  useEffect(() => {
+    const storedLimit = Number(localStorage.getItem(STORAGE_KEY_LIMIT));
+    if (Number.isFinite(storedLimit) && storedLimit >= 1 && storedLimit <= 20) {
+      setLimit(storedLimit);
+    }
+    const storedThreshold = Number(localStorage.getItem(STORAGE_KEY_THRESHOLD));
+    if (Number.isFinite(storedThreshold) && storedThreshold >= 0 && storedThreshold <= 1) {
+      setThreshold(storedThreshold);
+    }
+  }, []);
 
   const trimmed = query.trim();
   const canSearch = trimmed.length > 0 && !searchMutation.isPending;

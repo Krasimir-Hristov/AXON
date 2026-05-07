@@ -161,7 +161,10 @@ export async function streamChat(
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    const body = await _readErrorBody(response);
+    throw new Error(
+      `HTTP ${response.status}: ${response.statusText}${body ? ` — ${body}` : ''}`,
+    );
   }
 
   if (!response.body) {

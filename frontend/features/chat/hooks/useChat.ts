@@ -159,8 +159,8 @@ export function useChat() {
             message: content,
             model_id: modelId,
             conversation_id: resolvedConvId,
-            memory_threshold: Number(localStorage.getItem('axon:memory:threshold') ?? 0.35) || 0.35,
-            memory_limit: Number(localStorage.getItem('axon:memory:limit') ?? 5) || 5,
+            memory_threshold: ((_t) => (isNaN(_t) ? 0.35 : _t))(Number(localStorage.getItem('axon:memory:threshold'))),
+            memory_limit: ((_l) => (isNaN(_l) ? 5 : _l))(Number(localStorage.getItem('axon:memory:limit'))),
           },
           (event: SSEEvent) => {
             if (event.type === 'start') {

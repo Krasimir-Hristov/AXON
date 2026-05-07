@@ -38,7 +38,14 @@ async def memory_agent_node(state: AxonState) -> dict:
     query: str = (
         raw
         if isinstance(raw, str)
-        else " ".join(p if isinstance(p, str) else (p.get("text") or "") for p in raw)
+        else " ".join(
+            p
+            if isinstance(p, str)
+            else p.get("text", "")
+            if isinstance(p, dict)
+            else getattr(p, "text", "")
+            for p in raw
+        )
     )
 
     # -- Resolve the tool_call_id so the ToolMessage closes the loop -------
