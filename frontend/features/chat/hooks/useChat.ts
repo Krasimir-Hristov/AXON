@@ -47,6 +47,7 @@ export function useChat() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
+  const [toolStatus, setToolStatus] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const buffersRef = useRef<Map<string, TypingBuffer>>(new Map());
@@ -163,7 +164,10 @@ export function useChat() {
             if (event.type === 'start') {
               resolvedConvId = event.content;
               setConversationId(event.content);
+            } else if (event.type === 'tool_use') {
+              setToolStatus(event.content);
             } else if (event.type === 'token') {
+              setToolStatus(null);
               const buf = buffersRef.current.get(assistantId);
               if (buf) {
                 buf.pending += event.content;
@@ -181,6 +185,7 @@ export function useChat() {
               );
               setIsStreaming(false);
             } else if (event.type === 'done') {
+              setToolStatus(null);
               const buf = buffersRef.current.get(assistantId);
               if (buf) {
                 buf.streamComplete = true;
@@ -225,6 +230,7 @@ export function useChat() {
       prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
     );
     setIsStreaming(false);
+    setToolStatus(null);
   }, []);
 
   const resetConversation = useCallback(() => {
@@ -239,6 +245,7 @@ export function useChat() {
     setMessages([]);
     setConversationId(undefined);
     setError(null);
+    setToolStatus(null);
   }, []);
 
   return {
@@ -246,6 +253,7 @@ export function useChat() {
     isStreaming,
     conversationId,
     error,
+    toolStatus,
     sendMessage,
     stopStreaming,
     resetConversation,

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Sparkles, PenLine, Brain } from 'lucide-react';
+import { Sparkles, PenLine, Brain, Database } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 import MessageBubble from '@/features/chat/components/MessageBubble';
@@ -30,6 +30,7 @@ const ChatWindow = () => {
     messages,
     isStreaming,
     error,
+    toolStatus,
     sendMessage,
     stopStreaming,
     resetConversation,
@@ -107,6 +108,12 @@ const ChatWindow = () => {
               {messages.map((message) => (
                 <MessageBubble key={message.id} message={message} />
               ))}
+              {toolStatus && (
+                <div className='flex items-center gap-2 text-xs text-[#c0c1ff]'>
+                  <Database className='h-3.5 w-3.5 shrink-0 animate-pulse' />
+                  <span>{toolStatus}</span>
+                </div>
+              )}
               {error && !isStreaming && (
                 <p className='text-center text-xs text-[#ffb4ab]'>{error}</p>
               )}

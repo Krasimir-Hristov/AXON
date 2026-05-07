@@ -55,7 +55,9 @@ async def stream_chat(
         )
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         logger.exception("Failed to resolve conversation for user [uid:%s]", _uid_tag)
-        yield _format(SSEEvent(type="error", content="Failed to initialise conversation"))
+        yield _format(
+            SSEEvent(type="error", content="Failed to initialise conversation")
+        )
         yield _format(SSEEvent(type="done"))
         return
 
@@ -67,7 +69,11 @@ async def stream_chat(
 
     # ── 4. Emit start frame ───────────────────────────────────────
     yield _format(SSEEvent(type="start", content=conversation_id))
-    logger.info("[stream_chat] start frame sent, invoking graph with model=%s uid=%s", request.model_id, _uid_tag)
+    logger.info(
+        "[stream_chat] start frame sent, invoking graph with model=%s uid=%s",
+        request.model_id,
+        _uid_tag,
+    )
 
     # ── 5. Stream the graph ──────────────────────────────────────────
     initial_state: AxonState = {
@@ -83,13 +89,34 @@ async def stream_chat(
         logger.info("[stream_chat] starting astream_events (v2)")
         # supervisor_node uses model.astream() internally, which causes
         # graph.astream_events(v2) to emit on_chat_model_stream for every token.
-        # We filter to the supervisor node only (skip memory_agent LLM calls).
+        #
+        # Some models (e.g. DeepSeek) emit text content on pass 1 *before* or
+        # *alongside* a tool_call ("Let me check..."). We MUST NOT forward those
+        # tokens — they are internal routing narration, not the final answer.
+        # Strategy: buffer pass-1 supervisor tokens; discard the buffer if
+        # memory_agent fires; flush it if supervisor responds directly.
+        supervisor_invocation = 0
+        memory_agent_invoked = False
+        pass1_buffer: list[str] = []
+
         async for event in graph.astream_events(initial_state, version="v2"):
             kind = event.get("event")
+            node = event.get("metadata", {}).get("langgraph_node", "")
+
+            # Track supervisor invocations so we know which pass we're on.
+            if kind == "on_chain_start" and node == "supervisor":
+                supervisor_invocation += 1
+                continue
+
+            # Memory agent starting — discard pass-1 narration, emit tool_use.
+            if kind == "on_chain_start" and node == "memory_agent":
+                memory_agent_invoked = True
+                pass1_buffer.clear()
+                yield _format(SSEEvent(type="tool_use", content="Searching memory…"))
+                continue
+
             if kind != "on_chat_model_stream":
                 continue
-            # Only forward tokens from the supervisor node.
-            node = event.get("metadata", {}).get("langgraph_node")
             if node != "supervisor":
                 continue
             chunk = event.get("data", {}).get("chunk")
@@ -106,8 +133,27 @@ async def stream_chat(
                 content = str(content)
             if not content:
                 continue
-            collected.append(content)
-            yield _format(SSEEvent(type="token", content=content))
+
+            if supervisor_invocation <= 1 and not memory_agent_invoked:
+                # Pass 1 before we know if a tool will be called — buffer.
+                pass1_buffer.append(content)
+            else:
+                # Pass 2 (after memory agent), or pass 1 direct response:
+                # flush any buffered pass-1 tokens first, then stream normally.
+                if pass1_buffer:
+                    for buffered in pass1_buffer:
+                        collected.append(buffered)
+                        yield _format(SSEEvent(type="token", content=buffered))
+                    pass1_buffer.clear()
+                collected.append(content)
+                yield _format(SSEEvent(type="token", content=content))
+
+        # If supervisor responded directly (no tool call), flush the buffer.
+        if pass1_buffer:
+            for buffered in pass1_buffer:
+                collected.append(buffered)
+                yield _format(SSEEvent(type="token", content=buffered))
+            pass1_buffer.clear()
 
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         logger.exception("Chat stream failed for user [uid:%s]", _uid_tag)

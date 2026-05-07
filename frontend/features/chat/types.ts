@@ -22,7 +22,7 @@ export interface Conversation {
   updated_at: string;
 }
 
-export type SSEEventType = 'start' | 'token' | 'error' | 'done';
+export type SSEEventType = 'start' | 'token' | 'tool_use' | 'error' | 'done';
 
 export interface SSEEvent {
   type: SSEEventType;

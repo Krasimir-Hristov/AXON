@@ -21,7 +21,13 @@ import logging
 from fastapi import HTTPException, status
 from langchain.chat_models import init_chat_model
 from langchain_core.runnables import Runnable, RunnableConfig
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.tools import tool
 
 from app.agents.state import AxonState
@@ -46,17 +52,31 @@ Behaviour rules:
 - Be concise by default. Use Markdown formatting where it helps readability
   (lists, code fences, bold). Do not over-format casual replies.
 
-You have access to the user's long-term memory via `transfer_to_memory_agent`.
-Call it when the user:
-- Asks about themselves, personal preferences, or past interactions.
-- References something they may have stored or shared previously.
-- Uses phrases like "what do you know about me", "do you remember", "I told you".
-- Asks about content from documents, files, or notes they have uploaded or stored.
-- Asks a question where stored personal notes or uploaded files might contain the answer.
+## Memory tool — MANDATORY usage rules
 
-Do NOT call `transfer_to_memory_agent` for:
-- Pure general knowledge, math, coding, or writing requests that have no connection to anything the user could have stored.
-- Casual greetings or questions answerable from the conversation alone.
+You MUST call `transfer_to_memory_agent` (do NOT answer from general knowledge)
+whenever the user's message matches ANY of the following:
+
+1. The user explicitly asks what you know, remember, or have stored about them
+   — e.g. "what do you know about me", "what information do you have",
+   "kakvo znaeш za men", "kakva informaciq imaш", "что ты знаешь обо мне".
+2. The user asks about a document, file, note, or PDF they have uploaded.
+3. The user references a past event, preference, or fact they may have shared
+   — e.g. "do you remember", "I told you", "as I mentioned".
+4. The user asks a personal question that could be answered from stored notes
+   — e.g. "what are my goals", "what's my schedule", "remind me of...".
+5. When in doubt whether memory is relevant — CALL THE TOOL. It is always
+   better to search and find nothing than to miss stored information.
+
+## CRITICAL output rule
+When you decide to call `transfer_to_memory_agent`, your response MUST consist
+ONLY of the tool call — zero text content before or after it. Do NOT write
+phrases like "Let me check", "I will search", "Нека да проверя",
+"Позволи ми" or anything similar. Silence + tool call only.
+
+Do NOT call `transfer_to_memory_agent` only for:
+- Pure math, coding, or writing tasks with zero personal component.
+- Casual one-word greetings ("hi", "hello") answerable without any context.
 """
 
 
@@ -89,7 +109,9 @@ def _get_model(model_id: str, with_tools: bool) -> Runnable:
             api_key=settings.openrouter_api_key,
             streaming=True,
         )
-        _model_cache[key] = base.bind_tools([transfer_to_memory_agent]) if with_tools else base
+        _model_cache[key] = (
+            base.bind_tools([transfer_to_memory_agent]) if with_tools else base
+        )
     return _model_cache[key]
 
 
@@ -111,10 +133,14 @@ async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
     # check to messages after the last HumanMessage. Historical ToolMessages
     # from previous turns must not lock the supervisor into _get_response_model().
     last_human_idx = next(
-        (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], HumanMessage)),
+        (
+            i
+            for i in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[i], HumanMessage)
+        ),
         -1,
     )
-    current_turn = messages[last_human_idx + 1:]
+    current_turn = messages[last_human_idx + 1 :]
     memory_done = any(isinstance(m, ToolMessage) for m in current_turn)
 
     # Build the system prompt(s). The base AXON system prompt is always
@@ -138,7 +164,11 @@ async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
     # silently skipped — the client never sees internal routing.
     collected: list[AIMessageChunk] = []
     try:
-        logger.info("[supervisor] streaming model=%s with_tools=%s", state["model_id"], not memory_done)
+        logger.info(
+            "[supervisor] streaming model=%s with_tools=%s",
+            state["model_id"],
+            not memory_done,
+        )
         async for chunk in model.astream(messages, config):
             collected.append(chunk)
     except Exception as exc:  # noqa: BLE001
