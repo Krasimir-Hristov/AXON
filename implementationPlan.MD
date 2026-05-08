@@ -214,44 +214,44 @@
 
 ### 9A — API layer (`lib/api.ts`)
 
-- [ ] Add `listConversations()` — `GET /api/v1/chat/conversations` → `ConversationOut[]`
-- [ ] Add `getConversationMessages(id)` — `GET /api/v1/chat/conversations/{id}/messages` → `MessageOut[]`
-- [ ] Add `deleteConversation(id)` — `DELETE /api/v1/chat/conversations/{id}` → `void` (use `apiFetchVoid`)
-- [ ] Add TypeScript types `ConversationOut` and `MessageOut` to `features/chat/types.ts`
+- [x] Add `listConversations()` — `GET /api/v1/chat/conversations` → `ConversationOut[]`
+- [x] Add `getConversationMessages(id)` — `GET /api/v1/chat/conversations/{id}/messages` → `MessageOut[]`
+- [x] Add `deleteConversation(id)` — `DELETE /api/v1/chat/conversations/{id}` → `void` (use `apiFetchVoid`)
+- [x] Add TypeScript types `ConversationOut` and `MessageOut` to `features/chat/types.ts`
 
 ### 9B — TanStack Query hooks (`features/chat/hooks/useConversations.ts`)
 
-- [ ] `useConversations()` — query `listConversations`; stale after 30 s
-- [ ] `useConversationMessages(id)` — query `getConversationMessages(id)`; enabled only when `id` is set
-- [ ] `useDeleteConversation()` — mutation `deleteConversation`; on success invalidate `useConversations` + clear active conversation if deleted
+- [x] `useConversations()` — query `listConversations`; stale after 30 s
+- [x] `useConversationMessages(id)` — query `getConversationMessages(id)`; enabled only when `id` is set
+- [x] `useDeleteConversation()` — mutation `deleteConversation`; on success invalidate `useConversations` + clear active conversation if deleted
 
 ### 9C — Sidebar component (`features/chat/components/ConversationSidebar.tsx`)
 
-- [ ] Collapsible panel (hidden on mobile, 260 px on desktop)
-- [ ] "New chat" button at top → clears `conversationId` in `useChat`
-- [ ] List of past conversations ordered by `updated_at DESC`
+- [x] Collapsible panel (hidden on mobile, 260 px on desktop)
+- [x] "New chat" button at top → clears `conversationId` in `useChat`
+- [x] List of past conversations ordered by `updated_at DESC`
   - Each row shows: title (truncated 1 line), relative time (`date-fns/formatDistanceToNow`)
   - Active conversation highlighted
   - Hover → show delete icon (inline confirm: click once to mark red, second click deletes)
-- [ ] Loading skeleton (3 placeholder rows) while `useConversations` is fetching
-- [ ] Empty state: "No conversations yet"
+- [x] Loading skeleton (3 placeholder rows) while `useConversations` is fetching
+- [x] Empty state: "No conversations yet"
 
 ### 9D — Load conversation into chat (`features/chat/hooks/useChat.ts`)
 
-- [ ] Export `loadConversation(id: string)` from `useChat` — sets `conversationId` + seeds `messages` state from `useConversationMessages` data
-- [ ] When a conversation is selected in the sidebar, call `loadConversation` and scroll to bottom
+- [x] Export `loadConversation(id: string)` from `useChat` — sets `conversationId` + seeds `messages` state from `useConversationMessages` data
+- [x] When a conversation is selected in the sidebar, call `loadConversation` and scroll to bottom
 
 ### 9E — Wire sidebar into `ChatWindow.tsx`
 
-- [ ] Add `ConversationSidebar` to the left of the message list
-- [ ] Pass `activeConversationId`, `onSelect` and `onNew` callbacks down
-- [ ] On mobile: hamburger icon in header toggles sidebar visibility (`useState`)
+- [x] Add `ConversationSidebar` to the left of the message list
+- [x] Pass `activeConversationId`, `onSelect` and `onNew` callbacks down
+- [x] On mobile: hamburger icon in header toggles sidebar visibility (`useState`)
 
 ### 9F — Accessibility & UX polish
 
-- [ ] Sidebar items are `<button>` elements with `aria-current="page"` on the active one
-- [ ] Delete confirmation uses `aria-label="Delete conversation"`
-- [ ] Keyboard: `Escape` closes sidebar on mobile
+- [x] Sidebar items are `<button>` elements with `aria-current="page"` on the active one
+- [x] Delete confirmation uses `aria-label="Delete conversation"`
+- [x] Keyboard: `Escape` closes sidebar on mobile
 
 ### Verification
 
