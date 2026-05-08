@@ -232,10 +232,10 @@ async def update_conversation_title(
     conversation_id: str,
     user_id: str,
     title: str,
-) -> bool:
+) -> ConversationOut | None:
     """Update a conversation's title.
 
-    Returns True if updated, False if not found or not owned by user.
+    Returns the updated ConversationOut, or None if not found / not owned.
     """
     client = await get_supabase_client()
     try:
@@ -244,6 +244,7 @@ async def update_conversation_title(
             .update({"title": title})
             .eq("id", conversation_id)
             .eq("user_id", user_id)
+            .select("id, title, model_id, created_at, updated_at")
             .execute()
         )
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
@@ -251,4 +252,6 @@ async def update_conversation_title(
             "update_conversation_title: failed conversation_id=%s", conversation_id
         )
         raise
-    return bool(result.data)
+    if not result.data:
+        return None
+    return ConversationOut.model_validate(result.data[0])

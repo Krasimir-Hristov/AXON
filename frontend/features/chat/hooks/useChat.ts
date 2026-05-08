@@ -6,6 +6,12 @@ function generateId(): string {
   return crypto.randomUUID();
 }
 
+/** Read a float from localStorage; return fallback when absent or NaN. */
+function localFloat(key: string, fallback: number): number {
+  const n = Number(localStorage.getItem(key));
+  return isNaN(n) ? fallback : n;
+}
+
 /**
  * Per-assistant-message typing buffer.
  *
@@ -159,12 +165,8 @@ export function useChat() {
             message: content,
             model_id: modelId,
             conversation_id: resolvedConvId,
-            memory_threshold: ((_t) => (isNaN(_t) ? 0.35 : _t))(
-              Number(localStorage.getItem('axon:memory:threshold')),
-            ),
-            memory_limit: ((_l) => (isNaN(_l) ? 5 : _l))(
-              Number(localStorage.getItem('axon:memory:limit')),
-            ),
+            memory_threshold: localFloat('axon:memory:threshold', 0.35),
+            memory_limit: localFloat('axon:memory:limit', 5),
           },
           (event: SSEEvent) => {
             if (event.type === 'start') {

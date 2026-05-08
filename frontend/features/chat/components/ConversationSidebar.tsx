@@ -5,8 +5,8 @@ import {
   useRef,
   useState,
   useOptimistic,
-  useTransition,
 } from 'react';
+import { z } from 'zod';
 import { formatDistanceToNow } from 'date-fns';
 import { MessageSquarePlus, Trash2, Edit2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -15,10 +15,19 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   useConversations,
   useDeleteConversation,
-  CONVERSATIONS_KEY,
+  useUserId,
+  conversationsKey,
 } from '@/features/chat/hooks/useConversations';
 import { updateConversationTitle } from '@/lib/api';
 import type { ConversationOut } from '@/features/chat/types';
+
+const TitleSchema = z.object({
+  title: z
+    .string()
+    .min(1)
+    .max(200)
+    .transform((s) => s.trim()),
+});
 
 interface ConversationSidebarProps {
   activeId: string | undefined;
@@ -54,11 +63,17 @@ const ConversationRow = ({
   const [confirming, setConfirming] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [newTitle, setNewTitle] = useState(conversation.title);
+  const userId = useUserId();
   const qc = useQueryClient();
   const [optimisticTitle, addOptimisticTitle] = useOptimistic<string, string>(
     conversation.title,
     (_state, updated) => updated,
   );
+
+  // Keep the input in sync if the parent data changes (e.g. after a rename).
+  useEffect(() => {
+    setNewTitle(conversation.title);
+  }, [conversation.title]);
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -94,22 +109,29 @@ const ConversationRow = ({
   }
 
   async function renameAction(formData: FormData) {
-    const title = (formData.get('title') as string).trim();
-    if (!title || title === conversation.title) {
+    const parsed = TitleSchema.safeParse({ title: formData.get('title') });
+    if (!parsed.success) {
       setRenaming(false);
       setNewTitle(conversation.title);
+      return;
+    }
+    const { title } = parsed.data;
+    if (title === conversation.title) {
+      setRenaming(false);
       return;
     }
     addOptimisticTitle(title);
     setRenaming(false);
     try {
-      await updateConversationTitle(conversation.id, title);
+      const updated = await updateConversationTitle(conversation.id, title);
+      setNewTitle(updated.title);
       // Update the cache so useOptimistic doesn't revert after the transition
       qc.setQueryData<ConversationOut[]>(
-        CONVERSATIONS_KEY,
+        conversationsKey(userId),
         (prev) =>
-          prev?.map((c) => (c.id === conversation.id ? { ...c, title } : c)) ??
-          prev,
+          prev?.map((c) =>
+            c.id === conversation.id ? { ...c, title: updated.title } : c,
+          ) ?? prev,
       );
     } catch (err) {
       console.error('Failed to rename conversation:', err);

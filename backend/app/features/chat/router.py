@@ -113,22 +113,6 @@ async def update_conversation(
     updated = await update_conversation_title(
         str(conversation_id), current_user.id, payload.title
     )
-    if not updated:
+    if updated is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-
-    # Fetch and return the updated conversation
-    from app.db.supabase import get_supabase_client
-
-    client = await get_supabase_client()
-    result = (
-        await client.table("conversations")
-        .select("id, title, model_id, created_at, updated_at")
-        .eq("id", str(conversation_id))
-        .eq("user_id", current_user.id)
-        .limit(1)
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    row = result.data[0]
-    return ConversationOut.model_validate(row)
+    return updated

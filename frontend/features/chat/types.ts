@@ -22,14 +22,8 @@ export interface Conversation {
   updated_at: string;
 }
 
-/** Mirrors backend ConversationOut schema. */
-export interface ConversationOut {
-  id: string;
-  title: string;
-  model_id: string;
-  created_at: string;
-  updated_at: string;
-}
+/** Alias kept for backward compatibility — identical to Conversation. */
+export type ConversationOut = Conversation;
 
 /** Mirrors backend MessageOut schema. */
 export interface MessageOut {
