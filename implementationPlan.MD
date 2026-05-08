@@ -263,6 +263,113 @@
 
 ---
 
+## PHASE 10 — YouTube Transcript Workflow Subagent
+
+> **Goal:** When the user pastes a YouTube link in chat, the supervisor activates a dedicated `youtube_agent` subagent. The subagent fetches the video transcript, enriches it with metadata (title, channel, duration), and returns structured data to the supervisor. The supervisor presents a summary + key points, and offers to save the full transcript to Supabase (a new `video_transcripts` table) for later retrieval and visualisation.
+
+### Architecture & Flow
+
+```
+User: "https://www.youtube.com/watch?v=..."
+  → supervisor detects YouTube URL (regex)
+  → handoff tool: transfer_to_youtube_agent
+  → youtube_agent:
+      1. extract video_id from URL
+      2. fetch transcript via youtube-transcript-api (Python)
+      3. fetch metadata via yt-dlp or pytube (title, channel, duration)
+      4. chunk + structure transcript (timestamped paragraphs)
+      5. return YouTubeTranscriptResult to supervisor
+  → supervisor:
+      - renders summary + key points to user
+      - asks "Want me to save this?" (or user can ask explicitly)
+      → if yes: call save_video_transcript tool → INSERT to video_transcripts table
+```
+
+### Ideas за workflow режими (избери един при имплементация)
+
+| Режим                                                 | Описание                                                          | Плюсове                        |
+| ----------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------ |
+| **Transcript only**                                   | Само raw текст с timestamps                                       | Бързо, минимален LLM overhead  |
+| **Transcript + Summary + Key Points** ✅ _препоръчан_ | Transcript + auto-generated summary + bullet key points           | Полезен изход, лесен за четене |
+| **Study Notes**                                       | Transcript → структурирани бележки с heading-и, Q&A, action items | Идеален за образователни видеа |
+| **Research Digest**                                   | Transcript → теми + цитати + препратки                            | За по-дълги/технически видеа   |
+
+### 10A — Database (`supabase/migrations/`)
+
+- [ ] New migration: create `video_transcripts` table:
+  ```sql
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  youtube_url text NOT NULL,
+  video_id    text NOT NULL,
+  title       text,
+  channel     text,
+  duration_s  integer,
+  transcript  text NOT NULL,
+  summary     text,
+  key_points  jsonb,          -- string[]
+  metadata    jsonb DEFAULT '{}',
+  created_at  timestamptz DEFAULT now()
+  ```
+- [ ] RLS: `user_id = auth.uid()` on SELECT / INSERT / DELETE
+- [ ] Index on `(user_id, created_at DESC)`
+
+### 10B — Backend subagent (`app/agents/subagents/youtube_agent.py`)
+
+- [ ] New dependency: `uv add youtube-transcript-api yt-dlp` (or `pytube` for metadata)
+- [ ] `YouTubeTranscriptResult` dataclass / TypedDict: `video_id`, `title`, `channel`, `duration_s`, `transcript_text`, `timestamped_chunks`
+- [ ] `youtube_agent_node(state: AxonState)`:
+  - Extract YouTube URL from last `HumanMessage` via regex
+  - Fetch transcript via `YouTubeTranscriptApi.get_transcript()` — handle `TranscriptsDisabled`, `NoTranscriptFound`
+  - Fetch metadata via `yt-dlp` (async, `asyncio.to_thread`)
+  - Build structured `YouTubeTranscriptResult` and store in `AxonState["youtube_result"]`
+  - Return `ToolMessage` to close handoff tool call
+
+### 10C — Save tool (`app/features/youtube/tool.py`)
+
+- [ ] `@tool async def save_video_transcript(runtime: ToolRuntime)`:
+  - Reads `youtube_result` from `runtime.state`
+  - `INSERT INTO video_transcripts (user_id, youtube_url, video_id, title, ...)` via Supabase client
+  - Returns confirmation string with saved record id
+- [ ] Wire tool into supervisor's `bind_tools` list
+
+### 10D — Backend feature layer (`app/features/youtube/`)
+
+- [ ] `schemas.py` — `VideoTranscriptOut(id, youtube_url, video_id, title, channel, duration_s, transcript, summary, key_points, created_at)`
+- [ ] `service.py` — `list_transcripts(user_id)`, `get_transcript(id, user_id)`, `delete_transcript(id, user_id)`
+- [ ] `router.py`:
+  - `GET  /api/v1/youtube` — list saved transcripts (newest first)
+  - `GET  /api/v1/youtube/{id}` — full transcript detail
+  - `DELETE /api/v1/youtube/{id}` — 204 on success, 404 if not found/owned
+
+### 10E — Supervisor wiring (`app/agents/supervisor.py` + `orchestrator.py`)
+
+- [ ] Add `transfer_to_youtube_agent` handoff tool in supervisor's tool list
+- [ ] Supervisor system prompt: detect YouTube URL pattern → use `transfer_to_youtube_agent`
+- [ ] Add `youtube_agent` node to the LangGraph graph
+- [ ] Add `youtube_result` field to `AxonState`
+- [ ] Add `should_continue` edge cases for youtube_agent → supervisor path
+
+### 10F — Frontend (`features/youtube/`)
+
+- [ ] `features/youtube/types.ts` — `VideoTranscriptOut` interface
+- [ ] `features/youtube/hooks/useYouTube.ts` — `useTranscripts()`, `useDeleteTranscript()`
+- [ ] `features/youtube/components/YouTubeTranscriptCard.tsx` — shows title, channel, summary, key points, collapsible full transcript
+- [ ] `features/youtube/components/YouTubeLibrary.tsx` — list of saved transcripts with delete
+- [ ] `app/(dashboard)/youtube/page.tsx` — page route, guarded by auth
+- [ ] Nav link in `ChatWindow.tsx` header (e.g. `<Film />` icon → `/youtube`)
+- [ ] `lib/api.ts` — `listYouTubeTranscripts()`, `getYouTubeTranscript(id)`, `deleteYouTubeTranscript(id)`
+
+### Verification
+
+- [ ] Paste YouTube URL in chat → supervisor routes to youtube_agent → transcript fetched + summary shown
+- [ ] "Save this" → transcript saved to `video_transcripts` → confirmed in chat
+- [ ] Navigate to `/youtube` → saved transcripts listed
+- [ ] Delete transcript → removed from list
+- [ ] Video with disabled captions → graceful error message in chat
+
+---
+
 ## End-to-End Verification Checklist
 
 - [ ] Google OAuth → JWT validated on `/api/v1/auth/me` → 200
