@@ -124,12 +124,12 @@ async def load_history(
             .execute()
         )
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-        logger.exception(
-            "Failed to load history for conversation %s", conversation_id
-        )
+        logger.exception("Failed to load history for conversation %s", conversation_id)
         return []
 
-    rows: list[dict[str, Any]] = cast(list[dict[str, Any]], list(reversed(result.data or [])))
+    rows: list[dict[str, Any]] = cast(
+        list[dict[str, Any]], list(reversed(result.data or []))
+    )
     messages: list[BaseMessage] = []
     for row in rows:
         cls = _ROLE_TO_MESSAGE.get(str(row["role"]))
@@ -226,3 +226,32 @@ async def delete_conversation(conversation_id: str, user_id: str) -> bool:
         )
         raise
     return bool(result.data)
+
+
+async def update_conversation_title(
+    conversation_id: str,
+    user_id: str,
+    title: str,
+) -> ConversationOut | None:
+    """Update a conversation's title.
+
+    Returns the updated ConversationOut, or None if not found / not owned.
+    """
+    client = await get_supabase_client()
+    try:
+        result = (
+            await client.table("conversations")
+            .update({"title": title})
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .select("id, title, model_id, created_at, updated_at")
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception(
+            "update_conversation_title: failed conversation_id=%s", conversation_id
+        )
+        raise
+    if not result.data:
+        return None
+    return ConversationOut.model_validate(result.data[0])

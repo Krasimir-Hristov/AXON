@@ -1,6 +1,10 @@
 import { createClient } from '@/lib/supabase/client';
 import { z } from 'zod';
-import type { SSEEvent } from '@/features/chat/types';
+import type {
+  ConversationOut,
+  MessageOut,
+  SSEEvent,
+} from '@/features/chat/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
@@ -196,4 +200,33 @@ export async function streamChat(
   } finally {
     reader.releaseLock();
   }
+}
+
+export function listConversations(): Promise<ConversationOut[]> {
+  return apiFetch<ConversationOut[]>('/api/v1/chat/conversations');
+}
+
+export function getConversationMessages(id: string): Promise<MessageOut[]> {
+  return apiFetch<MessageOut[]>(
+    `/api/v1/chat/conversations/${encodeURIComponent(id)}/messages`,
+  );
+}
+
+export function deleteConversation(id: string): Promise<void> {
+  return apiFetchVoid(`/api/v1/chat/conversations/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function updateConversationTitle(
+  id: string,
+  title: string,
+): Promise<ConversationOut> {
+  return apiFetch<ConversationOut>(
+    `/api/v1/chat/conversations/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    },
+  );
 }
