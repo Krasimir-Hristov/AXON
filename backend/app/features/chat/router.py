@@ -12,8 +12,14 @@ from app.features.chat.conversation_service import (
     delete_conversation,
     get_messages,
     list_conversations,
+    update_conversation_title,
 )
-from app.features.chat.schemas import ChatRequest, ConversationOut, MessageOut
+from app.features.chat.schemas import (
+    ChatRequest,
+    ConversationOut,
+    MessageOut,
+    UpdateConversationRequest,
+)
 from app.features.chat.service import stream_chat
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -90,3 +96,39 @@ async def remove_conversation(
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return Response(status_code=204)
+
+
+@router.patch("/conversations/{conversation_id}", response_model=ConversationOut)
+@limiter.limit("60/minute")
+async def update_conversation(
+    request: Request,
+    conversation_id: UUID,
+    payload: UpdateConversationRequest,
+    current_user: UserSchema = Depends(get_current_user),
+) -> ConversationOut:
+    """Update a conversation's title.
+
+    Returns the updated conversation, or 404 if not found or not owned by the user.
+    """
+    updated = await update_conversation_title(
+        str(conversation_id), current_user.id, payload.title
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Fetch and return the updated conversation
+    from app.db.supabase import get_supabase_client
+
+    client = await get_supabase_client()
+    result = (
+        await client.table("conversations")
+        .select("id, title, model_id, created_at, updated_at")
+        .eq("id", str(conversation_id))
+        .eq("user_id", current_user.id)
+        .limit(1)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    row = result.data[0]
+    return ConversationOut.model_validate(row)

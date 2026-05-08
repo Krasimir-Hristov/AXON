@@ -22,6 +22,24 @@ export interface Conversation {
   updated_at: string;
 }
 
+/** Mirrors backend ConversationOut schema. */
+export interface ConversationOut {
+  id: string;
+  title: string;
+  model_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Mirrors backend MessageOut schema. */
+export interface MessageOut {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  created_at: string;
+}
+
 export type SSEEventType = 'start' | 'token' | 'tool_use' | 'error' | 'done';
 
 export interface SSEEvent {

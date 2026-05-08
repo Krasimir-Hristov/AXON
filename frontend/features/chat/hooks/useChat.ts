@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { streamChat } from '@/lib/api';
-import type { Message, SSEEvent } from '@/features/chat/types';
+import type { Message, MessageOut, SSEEvent } from '@/features/chat/types';
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -159,8 +159,12 @@ export function useChat() {
             message: content,
             model_id: modelId,
             conversation_id: resolvedConvId,
-            memory_threshold: ((_t) => (isNaN(_t) ? 0.35 : _t))(Number(localStorage.getItem('axon:memory:threshold'))),
-            memory_limit: ((_l) => (isNaN(_l) ? 5 : _l))(Number(localStorage.getItem('axon:memory:limit'))),
+            memory_threshold: ((_t) => (isNaN(_t) ? 0.35 : _t))(
+              Number(localStorage.getItem('axon:memory:threshold')),
+            ),
+            memory_limit: ((_l) => (isNaN(_l) ? 5 : _l))(
+              Number(localStorage.getItem('axon:memory:limit')),
+            ),
           },
           (event: SSEEvent) => {
             if (event.type === 'start') {
@@ -250,6 +254,33 @@ export function useChat() {
     setToolStatus(null);
   }, []);
 
+  /**
+   * Load a past conversation into the chat UI.
+   * Aborts any in-flight stream, clears typing buffers, seeds messages from
+   * the persisted history, and sets the active conversationId so the next
+   * `sendMessage` call continues in the same conversation.
+   */
+  const loadConversation = useCallback((id: string, history: MessageOut[]) => {
+    abortRef.current?.abort();
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    buffersRef.current.clear();
+    setIsStreaming(false);
+    setError(null);
+    setToolStatus(null);
+    setConversationId(id);
+    setMessages(
+      history.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        isStreaming: false,
+      })),
+    );
+  }, []);
+
   return {
     messages,
     isStreaming,
@@ -259,5 +290,6 @@ export function useChat() {
     sendMessage,
     stopStreaming,
     resetConversation,
+    loadConversation,
   };
 }

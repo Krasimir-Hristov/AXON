@@ -59,3 +59,9 @@ class MessageOut(BaseModel):
     role: Literal["user", "assistant", "system", "tool"]
     content: str = Field(min_length=0, max_length=100_000)
     created_at: datetime
+
+
+class UpdateConversationRequest(BaseModel):
+    """Request to update a conversation's title."""
+
+    title: str = Field(min_length=1, max_length=200)
