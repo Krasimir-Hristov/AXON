@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     embedding_model: str = "openai/text-embedding-3-large"
     embedding_dimensions: int = 1536
 
+    # YouTube agent (Phase 10) — model used for hierarchical transcript summarization.
+    # Uses a fast, large-context model via OpenRouter; not the user's selected chat model.
+    youtube_summary_model: str = "google/gemini-2.5-flash"
+
     # Rate limiting — optional Redis backend for multi-worker deployments.
     # Leave unset (default None) to use in-memory storage (single process).
     # Example: redis://localhost:6379/0

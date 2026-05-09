@@ -253,120 +253,299 @@
 - [x] Delete confirmation uses `aria-label="Delete conversation"`
 - [x] Keyboard: `Escape` closes sidebar on mobile
 
-### Verification
+## PHASE 10 — YouTube Transcript Workflow Subagent
 
-- [ ] Open `/chat` → sidebar lists past conversations
-- [ ] Click a conversation → messages load; `conversationId` in `useChat` updated
-- [ ] Send a new message in loaded conversation → appended correctly; `updated_at` bumps to top
-- [ ] "New chat" → blank input, no conversation selected
-- [ ] Delete conversation → removed from list; if active → chat resets to new
+> **Architecture decision log:**
+>
+> - LangGraph: No prebuilt YouTube workflow exists — existing manual supervisor pattern is correct.
+> - OpenRouter: TTS models available via `openai/gpt-audio-mini` with `modalities: ["audio"]` — uses existing `OPENROUTER_API_KEY`, no separate OpenAI key needed.
+> - Metadata fetching: `youtube-transcript-api` for transcript + YouTube oEmbed API for title/channel (no extra dep/key needed). Duration calculated from transcript timestamps.
+> - Summarization: `youtube_agent` handles hierarchical chunked summarization internally via `settings.youtube_summary_model` (default: `google/gemini-2.5-flash` via OpenRouter — not the user's selected chat model). Supervisor receives only the final summary — never the raw transcript.
+> - Save: summary is indexed in `memory_entries` (vector DB) so `memory_agent` can recall it in future. Full transcript stored in separate `video_transcripts` table.
+> - TTS tool is a simple `@tool`, not a subagent — it's one I/O operation with no multi-step logic.
+> - Cross-turn state ("ask before save"): youtube_agent returns a structured JSON payload inside the ToolMessage. On the next turn, supervisor reads the payload from conversation history and calls `save_video_transcript` — no Redis/cache needed.
+
+### Overall flow
+
+```text
+User pastes YouTube URL
+  → supervisor (pас 1, with tools) detects URL → calls transfer_to_youtube_agent
+  → youtube_agent:
+      1. Extract video_id via regex
+      2. Fetch transcript (youtube-transcript-api) — handle errors
+      3. Fetch title/channel via YouTube oEmbed (httpx, no API key)
+      4. Calculate duration_s from transcript timestamps
+      5. Hierarchical summarization: chunk transcript → parallel LLM calls → final summary
+      6. Return ToolMessage with JSON payload {video_id, title, channel, duration_s, summary, key_points, youtube_url}
+  → supervisor (пас 2, no tools): presents summary + key points, asks "Want me to save this?"
+
+User: "yes save it"
+  → supervisor (пас 1) reads JSON from prior ToolMessage → calls save_video_transcript()
+  → save_video_transcript tool:
+
+```sql
+      INSERT into video_transcripts
+      -- Also embed + INSERT summary into memory_entries (so memory_agent can recall it)
+```
+
+  → supervisor: "Saved ✓ — also indexed in your memory for future recall"
+
+User: "generate audio of the summary"
+  → supervisor calls generate_tts()
+  → generate_tts tool:
+      1. POST to OpenRouter TTS API (`openai/gpt-audio-mini`, `modalities: ["audio"]`)
+      2. Receive base64 audio, decode to bytes
+      3. Upload to Supabase Storage bucket "audio"
+      4. Return {public_url, filename, duration_estimate}
+  → supervisor: "Audio ready — [link]. Want me to save it to your library?"
+
+User: "yes"
+  → supervisor calls save_audio_entry()
+  → save_audio_entry tool:
+
+```sql
+      INSERT into audio_entries table
+```
+
+  → supervisor: "Saved to your audio library ✓"
+```
 
 ---
 
-## PHASE 10 — YouTube Transcript Workflow Subagent
+## PHASE 10A — YouTube Agent: Fetch + Hierarchical Summarize
 
-> **Goal:** When the user pastes a YouTube link in chat, the supervisor activates a dedicated `youtube_agent` subagent. The subagent fetches the video transcript, enriches it with metadata (title, channel, duration), and returns structured data to the supervisor. The supervisor presents a summary + key points, and offers to save the full transcript to Supabase (a new `video_transcripts` table) for later retrieval and visualisation.
+> **Goal:** youtube_agent fetches transcript + metadata, summarizes with its own LLM, returns structured JSON to supervisor. No save yet.
 
-### Architecture & Flow
+### 10A-1 — Dependencies
 
-```
-User: "https://www.youtube.com/watch?v=..."
-  → supervisor detects YouTube URL (regex)
-  → handoff tool: transfer_to_youtube_agent
-  → youtube_agent:
-      1. extract video_id from URL
-      2. fetch transcript via youtube-transcript-api (Python)
-      3. fetch metadata via yt-dlp or pytube (title, channel, duration)
-      4. chunk + structure transcript (timestamped paragraphs)
-      5. return YouTubeTranscriptResult to supervisor
-  → supervisor:
-      - renders summary + key points to user
-      - asks "Want me to save this?" (or user can ask explicitly)
-      → if yes: call save_video_transcript tool → INSERT to video_transcripts table
-```
+- [x] `uv add youtube-transcript-api` — transcript fetching
+- [x] No yt-dlp/pytube — oEmbed used for metadata instead
 
-### Ideas за workflow режими (избери един при имплементация)
+### 10A-2 — State extension (`app/agents/state.py`)
 
-| Режим                                                 | Описание                                                          | Плюсове                        |
-| ----------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------ |
-| **Transcript only**                                   | Само raw текст с timestamps                                       | Бързо, минимален LLM overhead  |
-| **Transcript + Summary + Key Points** ✅ _препоръчан_ | Transcript + auto-generated summary + bullet key points           | Полезен изход, лесен за четене |
-| **Study Notes**                                       | Transcript → структурирани бележки с heading-и, Q&A, action items | Идеален за образователни видеа |
-| **Research Digest**                                   | Transcript → теми + цитати + препратки                            | За по-дълги/технически видеа   |
+- [x] Add `youtube_context: str` field to `AxonState` — holds the JSON payload string from youtube_agent (empty string default); persists in LangGraph state for cross-turn save
 
-### 10A — Database (`supabase/migrations/`)
+### 10A-3 — Backend subagent (`app/agents/subagents/youtube_agent.py`)
+
+- [x] `_extract_youtube_url(text: str) -> str | None` — regex for `youtube.com/watch?v=`, `youtu.be/`, shorts
+- [x] `_fetch_oEmbed(video_id: str) -> dict` — GET `https://www.youtube.com/oembed?url=...&format=json` via `httpx.AsyncClient`; returns `{title, author_name}`
+- [x] `_fetch_transcript(video_id: str) -> list[dict]` — `YouTubeTranscriptApi.get_transcript()` in `asyncio.to_thread`; raises descriptive error on `TranscriptsDisabled` / `NoTranscriptFound`
+- [x] `_build_chunks(transcript: list[dict], chunk_tokens: int = 4000) -> list[str]` — group transcript entries into ~4000-token text chunks (estimate ~4 chars/token)
+- [x] `_summarize_chunks(chunks: list[str], model: str) -> list[str]` — `asyncio.gather` over chunks; each chunk → LLM call with "Summarize this section of a video transcript in 3-5 sentences"
+- [x] `_final_summary(chunk_summaries: list[str], title: str, model: str) -> tuple[str, list[str]]` — combine chunk summaries → LLM call → `(final_summary_text, key_points_list)`
+- [x] `youtube_agent_node(state: AxonState) -> dict`:
+  - Extract URL from last `HumanMessage`
+  - Fetch transcript + oEmbed in parallel (`asyncio.gather`)
+  - Calculate `duration_s` from last transcript entry's `start + duration`
+  - Run hierarchical summarization — use hardcoded `google/gemini-2.5-flash` (fast, large context) via OpenRouter for chunk summarization; configurable via `settings.youtube_summary_model`
+  - Build JSON payload: `{video_id, youtube_url, title, channel, duration_s, summary, key_points}`
+  - Store payload in `state["youtube_context"]`
+  - Return `ToolMessage` (closes handoff tool call) + `youtube_context` state update
+
+### 10A-4 — Supervisor wiring (`app/agents/supervisor.py` + `orchestrator.py`)
+
+- [x] Add `transfer_to_youtube_agent` handoff `@tool` (same pattern as `transfer_to_memory_agent`)
+- [x] Add to supervisor's `bind_tools` list alongside `transfer_to_memory_agent`
+- [x] Supervisor system prompt addition: detect YouTube URL → MUST call `transfer_to_youtube_agent`; do not attempt to summarise a URL directly; after receiving ToolMessage with video data, present summary + key points and ask "Want me to save this?"
+- [x] `orchestrator.py`: add `youtube_agent` node, extend `_should_continue` to route `transfer_to_youtube_agent` → `"youtube_agent"`; add edge `youtube_agent → supervisor`
+- [x] `app/core/config.py`: add `youtube_summary_model: str = "google/gemini-2.5-flash"` setting
+
+### 10A-5 — Verification
+
+- [ ] Paste short YouTube URL (< 10 min) → supervisor routes → youtube_agent fetches + summarizes → supervisor presents summary + key points
+- [ ] Paste 1h+ video → hierarchical chunking kicks in → summary still fits in context
+- [ ] Video with disabled captions → graceful error message in chat
+- [ ] Non-YouTube message → supervisor does NOT call youtube_agent
+
+---
+
+## PHASE 10B — Save Transcript (ask → confirm → save)
+
+> **Goal:** On user confirmation, save transcript to `video_transcripts` table AND index summary in `memory_entries` vector DB for future recall.
+
+### 10B-1 — Database (`supabase/migrations/`)
 
 - [ ] New migration: create `video_transcripts` table:
   ```sql
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   youtube_url text NOT NULL,
-  video_id    text NOT NULL,
+  video_id    text NOT NULL UNIQUE,
   title       text,
   channel     text,
   duration_s  integer,
-  transcript  text NOT NULL,
-  summary     text,
-  key_points  jsonb,          -- string[]
-  metadata    jsonb DEFAULT '{}',
+  summary     text NOT NULL,
+  key_points  jsonb DEFAULT '[]',   -- string[]
   created_at  timestamptz DEFAULT now()
   ```
 - [ ] RLS: `user_id = auth.uid()` on SELECT / INSERT / DELETE
 - [ ] Index on `(user_id, created_at DESC)`
 
-### 10B — Backend subagent (`app/agents/subagents/youtube_agent.py`)
+### 10B-2 — Backend feature layer (`app/features/youtube/`)
 
-- [ ] New dependency: `uv add youtube-transcript-api yt-dlp` (or `pytube` for metadata)
-- [ ] `YouTubeTranscriptResult` dataclass / TypedDict: `video_id`, `title`, `channel`, `duration_s`, `transcript_text`, `timestamped_chunks`
-- [ ] `youtube_agent_node(state: AxonState)`:
-  - Extract YouTube URL from last `HumanMessage` via regex
-  - Fetch transcript via `YouTubeTranscriptApi.get_transcript()` — handle `TranscriptsDisabled`, `NoTranscriptFound`
-  - Fetch metadata via `yt-dlp` (async, `asyncio.to_thread`)
-  - Build structured `YouTubeTranscriptResult` and store in `AxonState["youtube_result"]`
-  - Return `ToolMessage` to close handoff tool call
-
-### 10C — Save tool (`app/features/youtube/tool.py`)
-
-- [ ] `@tool async def save_video_transcript(runtime: ToolRuntime)`:
-  - Reads `youtube_result` from `runtime.state`
-  - `INSERT INTO video_transcripts (user_id, youtube_url, video_id, title, ...)` via Supabase client
-  - Returns confirmation string with saved record id
-- [ ] Wire tool into supervisor's `bind_tools` list
-
-### 10D — Backend feature layer (`app/features/youtube/`)
-
-- [ ] `schemas.py` — `VideoTranscriptOut(id, youtube_url, video_id, title, channel, duration_s, transcript, summary, key_points, created_at)`
-- [ ] `service.py` — `list_transcripts(user_id)`, `get_transcript(id, user_id)`, `delete_transcript(id, user_id)`
+- [ ] `__init__.py`
+- [ ] `schemas.py` — `VideoTranscriptOut(id, youtube_url, video_id, title, channel, duration_s, summary, key_points, created_at)`
+- [ ] `service.py`:
+  - `save_transcript(user_id, payload: dict) -> VideoTranscriptOut` — INSERT into `video_transcripts`; also calls `memory_service.add_memory(user_id, text=f"[YouTube] {title}: {summary}")` to index in vector DB
+  - `list_transcripts(user_id) -> list[VideoTranscriptOut]`
+  - `get_transcript(id, user_id) -> VideoTranscriptOut` — raises 404 if not owned
+  - `delete_transcript(id, user_id) -> bool` — also deletes the corresponding `memory_entries` row (match by source tag)
 - [ ] `router.py`:
-  - `GET  /api/v1/youtube` — list saved transcripts (newest first)
-  - `GET  /api/v1/youtube/{id}` — full transcript detail
-  - `DELETE /api/v1/youtube/{id}` — 204 on success, 404 if not found/owned
+  - `GET  /api/v1/youtube` — list saved transcripts (newest first); protected; rate limit 60/min
+  - `GET  /api/v1/youtube/{id}` — full transcript detail; protected
+  - `DELETE /api/v1/youtube/{id}` — 204; protected; rate limit 30/min
 
-### 10E — Supervisor wiring (`app/agents/supervisor.py` + `orchestrator.py`)
+### 10B-3 — Save tool (`app/features/youtube/tool.py`)
 
-- [ ] Add `transfer_to_youtube_agent` handoff tool in supervisor's tool list
-- [ ] Supervisor system prompt: detect YouTube URL pattern → use `transfer_to_youtube_agent`
-- [ ] Add `youtube_agent` node to the LangGraph graph
-- [ ] Add `youtube_result` field to `AxonState`
-- [ ] Add `should_continue` edge cases for youtube_agent → supervisor path
+- [ ] `@tool async def save_video_transcript(state: AxonState) -> str`:
+  - Reads `state["youtube_context"]` — parse JSON payload
+  - Validates payload has required fields (raises if `youtube_context` is empty)
+  - Calls `youtube_service.save_transcript(user_id, payload)`
+  - Returns confirmation string with title + saved id
+- [ ] Wire tool into supervisor's `bind_tools` list
+- [ ] Supervisor system prompt: when user confirms save ("yes", "save it", "запази") and `youtube_context` is non-empty → call `save_video_transcript`; do not call `transfer_to_youtube_agent` again
+- [ ] Rate limit `POST /api/v1/youtube` (if REST needed) — 10/minute
 
-### 10F — Frontend (`features/youtube/`)
+### 10B-4 — Mount router in `app/main.py`
 
-- [ ] `features/youtube/types.ts` — `VideoTranscriptOut` interface
-- [ ] `features/youtube/hooks/useYouTube.ts` — `useTranscripts()`, `useDeleteTranscript()`
-- [ ] `features/youtube/components/YouTubeTranscriptCard.tsx` — shows title, channel, summary, key points, collapsible full transcript
-- [ ] `features/youtube/components/YouTubeLibrary.tsx` — list of saved transcripts with delete
-- [ ] `app/(dashboard)/youtube/page.tsx` — page route, guarded by auth
-- [ ] Nav link in `ChatWindow.tsx` header (e.g. `<Film />` icon → `/youtube`)
-- [ ] `lib/api.ts` — `listYouTubeTranscripts()`, `getYouTubeTranscript(id)`, `deleteYouTubeTranscript(id)`
+- [ ] Import and mount youtube router
 
-### Verification
+### 10B-5 — Verification
 
-- [ ] Paste YouTube URL in chat → supervisor routes to youtube_agent → transcript fetched + summary shown
-- [ ] "Save this" → transcript saved to `video_transcripts` → confirmed in chat
-- [ ] Navigate to `/youtube` → saved transcripts listed
-- [ ] Delete transcript → removed from list
-- [ ] Video with disabled captions → graceful error message in chat
+- [ ] After youtube summary shown: "save it" → `save_video_transcript` tool called → confirmation in chat
+- [ ] `GET /api/v1/youtube` → saved transcript in list
+- [ ] `memory_agent` can now recall video: "what was that video about X?" → memory search returns video summary
+- [ ] "no" / ignore → transcript NOT saved
+- [ ] `DELETE /api/v1/youtube/{id}` → 204 + memory entry removed
+
+---
+
+## PHASE 10C — TTS Generation
+
+> **Goal:** Supervisor can call `generate_tts` tool on any text (usually the video summary). Uses OpenAI TTS API directly (NOT via OpenRouter — TTS models are unavailable on OpenRouter). Returns audio bytes uploaded to Supabase Storage `audio` bucket.
+
+### 10C-1 — OpenRouter TTS research finding
+
+> OpenRouter **does** offer audio output models via the standard chat completions endpoint (`/api/v1/chat/completions`) with `"modalities": ["audio"]`.
+> Available models (confirmed active):
+>
+> - `openai/gpt-audio-mini` — $0.60/$2.40 per M tokens — **default choice** (fast, cost-efficient)
+> - `openai/gpt-audio` — $2.50/$10 per M tokens — higher quality option
+>
+> These use the existing `OPENROUTER_API_KEY` — **no separate `OPENAI_API_KEY` needed**.
+> API request format: chat completions with `modalities: ["text", "audio"]` + `audio: {voice, format}`.
+> Response: audio returned as **base64-encoded mp3** in `choices[0].message.audio.data`.
+> Default voice: `alloy`. Configurable via `settings.tts_voice`.
+> Output format: `mp3` — universal browser support.
+
+### 10C-2 — Config (`app/core/config.py`)
+
+- [ ] Add `tts_model: str = "openai/gpt-audio-mini"` — configurable; `openai/gpt-audio` for higher quality
+- [ ] Add `tts_voice: str = "alloy"` — alloy / echo / fable / onyx / nova / shimmer
+- [ ] Add `audio_bucket: str = "audio"` — Supabase Storage bucket name
+
+### 10C-3 — Supabase Storage setup
+
+- [ ] Create `audio` bucket in Supabase (private, not public)
+- [ ] Bucket policy: authenticated users can INSERT their own files; SELECT only their own; path pattern `{user_id}/*`
+
+### 10C-4 — TTS service (`app/features/audio/service.py`)
+
+- [ ] `generate_tts(text: str, user_id: str) -> tuple[bytes, str]`:
+  - POST to OpenRouter `/api/v1/chat/completions` via existing `httpx.AsyncClient`
+  - Body: `{"model": settings.tts_model, "modalities": ["text", "audio"], "audio": {"voice": settings.tts_voice, "format": "mp3"}, "messages": [{"role": "user", "content": text}]}`
+  - Header: `Authorization: Bearer {settings.openrouter_api_key}` (same key as LLM calls)
+  - Decode `choices[0].message.audio.data` (base64) → raw mp3 bytes
+  - Returns `(audio_bytes, filename)` where `filename = f"{user_id}/{uuid4()}.mp3"`
+- [ ] `upload_audio(audio_bytes: bytes, filename: str) -> str`:
+  - Upload to Supabase Storage `audio` bucket
+  - Returns signed URL (1 week expiry) via `storage.create_signed_url(bucket, filename, 604800)`
+- [ ] Text length guard: max 4096 chars (OpenAI TTS limit); truncate with warning log if exceeded
+
+### 10C-5 — Generate TTS tool (`app/features/audio/tool.py`)
+
+- [ ] `@tool async def generate_tts(text: str, state: AxonState) -> str`:
+  - Calls `audio_service.generate_tts(text, state["user_id"])`
+  - Calls `audio_service.upload_audio(bytes, filename)`
+  - Stores `{filename, signed_url, text_preview}` JSON in `state["pending_audio"]`
+  - Returns markdown string with signed URL for supervisor to present to user
+- [ ] Wire tool into supervisor's `bind_tools` list
+- [ ] Supervisor system prompt: when user asks for audio/TTS of summary or any text → call `generate_tts(text=<summary_or_requested_text>)`; present the signed URL as a clickable link; ask "Want me to save this to your audio library?"
+
+### 10C-6 — State extension
+
+- [ ] Add `pending_audio: str` to `AxonState` — JSON string with `{filename, signed_url, title}` for cross-turn save confirmation
+
+### 10C-7 — Verification
+
+- [ ] "Generate audio of the summary" → `generate_tts` called → signed URL returned in chat → audio playable
+- [ ] Text > 4096 chars → truncated with warning, audio still generated
+- [ ] Invalid/empty text → tool returns descriptive error message
+
+---
+
+## PHASE 10D — Audio Library (save + browse + delete)
+
+> **Goal:** On user confirmation, save audio entry to `audio_entries` table. Frontend: dedicated `/audio` page to browse, play, and delete saved audio files.
+
+### 10D-1 — Database (`supabase/migrations/`)
+
+- [ ] New migration: create `audio_entries` table:
+  ```sql
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  filename      text NOT NULL,          -- path in storage: {user_id}/{uuid}.mp3
+  title         text NOT NULL,          -- user-facing label (video title or custom)
+  source_type   text DEFAULT 'youtube', -- 'youtube' | 'custom'
+  source_id     uuid REFERENCES video_transcripts(id) ON DELETE SET NULL,
+  duration_s    integer,                -- estimated from text length
+  created_at    timestamptz DEFAULT now()
+  ```
+- [ ] RLS: `user_id = auth.uid()` on SELECT / INSERT / DELETE
+- [ ] Index on `(user_id, created_at DESC)`
+
+### 10D-2 — Backend feature layer (`app/features/audio/`)
+
+- [ ] `__init__.py`
+- [ ] `schemas.py` — `AudioEntryOut(id, filename, title, source_type, source_id, duration_s, created_at, signed_url)`
+- [ ] `service.py` additions:
+  - `save_audio_entry(user_id, filename, title, source_type, source_id) -> AudioEntryOut`
+  - `list_audio_entries(user_id) -> list[AudioEntryOut]` — for each entry, generate fresh signed URL (1 week)
+  - `delete_audio_entry(id, user_id) -> bool` — DELETE from table + `storage.remove([filename])`
+- [ ] `router.py`:
+  - `GET  /api/v1/audio` — list saved audio (newest first); protected; rate limit 60/min
+  - `DELETE /api/v1/audio/{id}` — 204 + deletes from Storage; protected; rate limit 30/min
+
+### 10D-3 — Save audio tool (`app/features/audio/tool.py` addition)
+
+- [ ] `@tool async def save_audio_entry(title: str, state: AxonState) -> str`:
+  - Reads `state["pending_audio"]` — parse JSON
+  - Calls `audio_service.save_audio_entry(user_id, filename, title, ...)`
+  - Returns confirmation with title
+- [ ] Wire tool into supervisor's `bind_tools` list
+- [ ] Supervisor system prompt: when user confirms save of audio → call `save_audio_entry(title=<video_title_or_user_provided>)`
+
+### 10D-4 — Mount router in `app/main.py`
+
+- [ ] Import and mount audio router
+
+### 10D-5 — Frontend Audio Library (`features/audio/`)
+
+- [ ] `features/audio/types.ts` — `AudioEntryOut` interface
+- [ ] `features/audio/hooks/useAudio.ts` — `useAudioEntries()` (TanStack Query, stale 60s), `useDeleteAudio()` mutation
+- [ ] `features/audio/components/AudioCard.tsx` — shows title, date, duration estimate; HTML5 `<audio>` player with signed URL; delete button (inline confirm)
+- [ ] `features/audio/components/AudioLibrary.tsx` — grid/list of `AudioCard`s; loading skeleton; empty state
+- [ ] `app/(dashboard)/audio/page.tsx` — page route, guarded by auth
+- [ ] Nav link in `ChatWindow.tsx` header (`<Headphones />` icon → `/audio`)
+- [ ] `lib/api.ts` — `listAudioEntries()`, `deleteAudioEntry(id)`
+
+### 10D-6 — Verification
+
+- [ ] "Save the audio" → `save_audio_entry` called → confirmation in chat
+- [ ] Navigate to `/audio` → saved entries listed with player
+- [ ] `<audio>` element plays correctly from signed URL
+- [ ] Delete audio → removed from list + deleted from Supabase Storage
+- [ ] Signed URL expiry: after 1 week, `list_audio_entries` regenerates fresh URLs on each fetch
 
 ---
 
