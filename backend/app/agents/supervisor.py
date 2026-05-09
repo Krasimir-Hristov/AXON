@@ -1,18 +1,21 @@
 """Supervisor node — routes user requests to specialised sub-agents.
 
-The supervisor is the entry point for every chat turn. It holds exactly one
-handoff tool (``transfer_to_memory_agent``) and uses the LLM to decide:
+The supervisor is the entry point for every chat turn. It holds handoff tools
+for each sub-agent and uses the LLM to decide:
 
-- **Delegate**: calls ``transfer_to_memory_agent`` → orchestrator routes to the
-  memory_agent node → memory results are injected back into state → supervisor
-  generates the final response with memory context.
-- **Respond directly**: answers general questions without a memory lookup.
+- **Delegate to memory_agent**: calls ``transfer_to_memory_agent`` → orchestrator
+  routes to memory_agent_node → memory results injected back → supervisor generates
+  the final response with memory context.
+- **Delegate to youtube_agent**: calls ``transfer_to_youtube_agent`` → orchestrator
+  routes to youtube_agent_node → JSON payload injected back → supervisor presents
+  summary + key points and asks to save.
+- **Respond directly**: answers general questions without delegation.
 
 Two model singletons are kept at module level:
-- ``_routing_model``  — base model bound to ``[transfer_to_memory_agent]``.
+- ``_routing_model``  — base model bound to both handoff tools.
   Used on the *first* pass (no ToolMessage in history yet).
 - ``_response_model`` — same base model, *no* tools bound.
-  Used on the *second* pass (after memory_agent has added a ToolMessage) to
+  Used on the *second* pass (after any sub-agent has added a ToolMessage) to
   guarantee the supervisor never re-delegates in a loop.
 """
 
@@ -35,8 +38,9 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Tool name constant — imported by memory_agent.py to resolve tool_call_id.
+# Tool name constants — imported by the respective sub-agent modules and orchestrator.py.
 HANDOFF_TOOL_NAME = "transfer_to_memory_agent"
+YOUTUBE_HANDOFF_TOOL_NAME = "transfer_to_youtube_agent"
 
 _SUPERVISOR_SYSTEM_PROMPT = """\
 You are AXON, a helpful personal AI assistant.
@@ -86,6 +90,32 @@ phrases like "Let me check", "I will search", "Нека да проверя",
 Do NOT call `transfer_to_memory_agent` only for:
 - Pure math, coding, or writing tasks with zero personal component.
 - Casual one-word greetings ("hi", "hello") answerable without any context.
+
+## YouTube tool — MANDATORY usage rules
+
+You MUST call `transfer_to_youtube_agent` (do NOT attempt to fetch or describe the
+video yourself) whenever the user's message contains a YouTube video URL in any of
+these formats: `youtube.com/watch?v=`, `youtu.be/`, `youtube.com/shorts/`.
+
+CRITICAL output rule: When calling `transfer_to_youtube_agent`, your response MUST
+consist ONLY of the tool call — zero text content before or after it. Do NOT write
+phrases like "Let me fetch", "Fetching transcript", "Нека да проверя" or anything
+similar. Silence + tool call only.
+
+After `transfer_to_youtube_agent` returns, you will receive a JSON payload with
+fields: `title`, `channel`, `duration_s`, `summary`, `key_points`. Present the
+result as follows:
+- **Title** and **Channel** on the first line.
+- **Duration** in minutes (convert from `duration_s`).
+- **Summary** as a paragraph.
+- **Key Points** as a numbered or bulleted list.
+- End with: "Would you like me to save this to your library?"
+
+If the tool returns an error string (not JSON), relay the error to the user politely.
+
+Do NOT call `transfer_to_youtube_agent` if:
+- The user only mentions YouTube in general without an actual URL.
+- A ToolMessage from youtube_agent is already present in the current turn.
 """
 
 
@@ -99,6 +129,18 @@ def transfer_to_memory_agent() -> str:
     # The tool body is never executed — supervisor_node detects the tool_call
     # by name and routes to memory_agent_node via _should_continue.
     return "Memory agent activated."  # pragma: no cover
+
+
+@tool(YOUTUBE_HANDOFF_TOOL_NAME)
+def transfer_to_youtube_agent() -> str:
+    """Delegate to the YouTube specialist to fetch and summarise a video transcript.
+
+    Call this when the user's message contains a YouTube URL
+    (youtube.com/watch?v=, youtu.be/, or youtube.com/shorts/).
+    """
+    # The tool body is never executed — supervisor_node detects the tool_call
+    # by name and routes to youtube_agent_node via _should_continue.
+    return "YouTube agent activated."  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +161,9 @@ def _get_model(model_id: str, with_tools: bool) -> Runnable:
             streaming=True,
         )
         _model_cache[key] = (
-            base.bind_tools([transfer_to_memory_agent]) if with_tools else base
+            base.bind_tools([transfer_to_memory_agent, transfer_to_youtube_agent])
+            if with_tools
+            else base
         )
     return _model_cache[key]
 

@@ -19,6 +19,10 @@ class AxonState(TypedDict):
             orchestrator uses settings.llm_model.
         memory_context: Snippets retrieved from long-term memory (Phase 5+).
             Kept as an empty list for now to avoid TypedDict churn later.
+        youtube_context: JSON payload string returned by youtube_agent_node.
+            Holds {video_id, youtube_url, title, channel, duration_s, summary,
+            key_points} for the current turn. Empty string when no video was
+            processed. Persists in conversation state for cross-turn save flow.
     """
 
     messages: Annotated[list[BaseMessage], add_messages]
@@ -27,3 +31,4 @@ class AxonState(TypedDict):
     memory_context: list[str]
     memory_threshold: float
     memory_limit: int
+    youtube_context: str
