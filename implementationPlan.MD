@@ -258,16 +258,16 @@
 > **Architecture decision log:**
 >
 > - LangGraph: No prebuilt YouTube workflow exists — existing manual supervisor pattern is correct.
-> - OpenRouter: TTS models are currently unavailable (all return "not available"). TTS uses **OpenAI TTS API directly** (`api.openai.com/v1/audio/speech`) with a separate `OPENAI_API_KEY` env var.
+> - OpenRouter: TTS models available via `openai/gpt-audio-mini` with `modalities: ["audio"]` — uses existing `OPENROUTER_API_KEY`, no separate OpenAI key needed.
 > - Metadata fetching: `youtube-transcript-api` for transcript + YouTube oEmbed API for title/channel (no extra dep/key needed). Duration calculated from transcript timestamps.
-> - Summarization: `youtube_agent` handles hierarchical chunked summarization internally with its own LLM call (using `gpt-4o-mini` hardcoded — not the user's selected chat model). Supervisor receives only the final summary — never the raw transcript.
+> - Summarization: `youtube_agent` handles hierarchical chunked summarization internally via `settings.youtube_summary_model` (default: `google/gemini-2.5-flash` via OpenRouter — not the user's selected chat model). Supervisor receives only the final summary — never the raw transcript.
 > - Save: summary is indexed in `memory_entries` (vector DB) so `memory_agent` can recall it in future. Full transcript stored in separate `video_transcripts` table.
 > - TTS tool is a simple `@tool`, not a subagent — it's one I/O operation with no multi-step logic.
 > - Cross-turn state ("ask before save"): youtube_agent returns a structured JSON payload inside the ToolMessage. On the next turn, supervisor reads the payload from conversation history and calls `save_video_transcript` — no Redis/cache needed.
 
 ### Overall flow
 
-```
+```text
 User pastes YouTube URL
   → supervisor (pас 1, with tools) detects URL → calls transfer_to_youtube_agent
   → youtube_agent:
@@ -282,22 +282,31 @@ User pastes YouTube URL
 User: "yes save it"
   → supervisor (пас 1) reads JSON from prior ToolMessage → calls save_video_transcript()
   → save_video_transcript tool:
-      1. INSERT into video_transcripts
-      2. Also embed + INSERT summary into memory_entries (so memory_agent can recall it)
+
+```sql
+      INSERT into video_transcripts
+      -- Also embed + INSERT summary into memory_entries (so memory_agent can recall it)
+```
+
   → supervisor: "Saved ✓ — also indexed in your memory for future recall"
 
 User: "generate audio of the summary"
   → supervisor calls generate_tts()
   → generate_tts tool:
-      1. POST to OpenAI TTS API (direct, not via OpenRouter)
-      2. Receive audio bytes
+      1. POST to OpenRouter TTS API (`openai/gpt-audio-mini`, `modalities: ["audio"]`)
+      2. Receive base64 audio, decode to bytes
       3. Upload to Supabase Storage bucket "audio"
       4. Return {public_url, filename, duration_estimate}
   → supervisor: "Audio ready — [link]. Want me to save it to your library?"
 
 User: "yes"
   → supervisor calls save_audio_entry()
-  → save_audio_entry tool: INSERT into audio_entries table
+  → save_audio_entry tool:
+
+```sql
+      INSERT into audio_entries table
+```
+
   → supervisor: "Saved to your audio library ✓"
 ```
 

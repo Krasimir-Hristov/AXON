@@ -109,7 +109,6 @@ result as follows:
 - **Duration** in minutes (convert from `duration_s`).
 - **Summary** as a paragraph.
 - **Key Points** as a numbered or bulleted list.
-- End with: "Would you like me to save this to your library?"
 
 If the tool returns an error string (not JSON), relay the error to the user politely.
 
