@@ -47,7 +47,9 @@ async def fetch_oembed(video_id: str) -> dict[str, str]:
                 "channel": data.get("author_name", "Unknown Channel"),
             }
     except Exception:
-        logger.warning("[youtube_fetcher] oEmbed fetch failed for video_id=%s", video_id)
+        logger.warning(
+            "[youtube_fetcher] oEmbed fetch failed for video_id=%s", video_id
+        )
         return {"title": "Unknown Title", "channel": "Unknown Channel"}
 
 

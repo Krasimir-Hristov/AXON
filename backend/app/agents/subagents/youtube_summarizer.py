@@ -136,11 +136,19 @@ async def summarize_chunks(chunks: list[str]) -> list[str]:
                         HumanMessage(content=_CHUNK_SUMMARY_USER.format(chunk=chunk)),
                     ]
                 )
-                content = resp.content if isinstance(resp.content, str) else str(resp.content)
-                logger.debug("[youtube_summarizer] chunk %d summarized (%d chars)", idx, len(content))
+                content = (
+                    resp.content if isinstance(resp.content, str) else str(resp.content)
+                )
+                logger.debug(
+                    "[youtube_summarizer] chunk %d summarized (%d chars)",
+                    idx,
+                    len(content),
+                )
                 return content
             except Exception:
-                logger.exception("[youtube_summarizer] chunk %d summarization failed", idx)
+                logger.exception(
+                    "[youtube_summarizer] chunk %d summarization failed", idx
+                )
                 return ""
 
     results = await asyncio.gather(*[_one(c, i) for i, c in enumerate(chunks)])
@@ -171,7 +179,9 @@ async def build_final_summary(
     try:
         resp = await model.ainvoke(
             [
-                SystemMessage(content="You are a precise summarizer. Always respond with valid JSON only."),
+                SystemMessage(
+                    content="You are a precise summarizer. Always respond with valid JSON only."
+                ),
                 HumanMessage(content=prompt),
             ]
         )
@@ -180,8 +190,12 @@ async def build_final_summary(
         validated = YouTubeSummaryPayload.model_validate(json.loads(content))
         return validated.summary, validated.key_points
     except (ValidationError, json.JSONDecodeError):
-        logger.exception("[youtube_summarizer] final summary validation/parse failed — falling back")
+        logger.exception(
+            "[youtube_summarizer] final summary validation/parse failed — falling back"
+        )
         return " ".join(chunk_summaries[:3]), []
     except Exception:
-        logger.exception("[youtube_summarizer] final summary LLM call failed — falling back")
+        logger.exception(
+            "[youtube_summarizer] final summary LLM call failed — falling back"
+        )
         return " ".join(chunk_summaries[:3]), []

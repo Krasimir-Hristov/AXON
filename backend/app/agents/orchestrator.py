@@ -25,7 +25,10 @@ from langchain_core.messages import HumanMessage, ToolMessage
 
 from app.agents.state import AxonState
 from app.agents.subagents.memory_agent import memory_agent_node
-from app.agents.subagents.youtube_agent import YOUTUBE_HANDOFF_TOOL_NAME, youtube_agent_node
+from app.agents.subagents.youtube_agent import (
+    YOUTUBE_HANDOFF_TOOL_NAME,
+    youtube_agent_node,
+)
 from app.agents.supervisor import HANDOFF_TOOL_NAME, supervisor_node
 
 logger = logging.getLogger(__name__)
@@ -41,10 +44,14 @@ def _should_continue(state: AxonState) -> str:
     messages = state["messages"]
     # Find the boundary of the current turn.
     last_human_idx = next(
-        (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], HumanMessage)),
+        (
+            i
+            for i in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[i], HumanMessage)
+        ),
         -1,
     )
-    current_turn = messages[last_human_idx + 1:]
+    current_turn = messages[last_human_idx + 1 :]
 
     # If any sub-agent already ran this turn, stop — prevents re-delegation.
     if any(isinstance(m, ToolMessage) for m in current_turn):

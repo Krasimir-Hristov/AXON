@@ -16,7 +16,11 @@ from youtube_transcript_api import NoTranscriptFound, TranscriptsDisabled
 
 from app.agents.state import AxonState
 from app.agents.subagents.youtube_chunker import build_chunks
-from app.agents.subagents.youtube_fetcher import extract_video_id, fetch_oembed, fetch_transcript
+from app.agents.subagents.youtube_fetcher import (
+    extract_video_id,
+    fetch_oembed,
+    fetch_transcript,
+)
 from app.agents.subagents.youtube_summarizer import (
     YouTubeVideoPayload,
     build_final_summary,
@@ -119,17 +123,26 @@ async def youtube_agent_node(state: AxonState) -> dict:
 
     logger.info(
         "[youtube_agent] title=%r channel=%r entries=%d duration_s=%d",
-        title, channel, len(transcript_entries), duration_s,
+        title,
+        channel,
+        len(transcript_entries),
+        duration_s,
     )
 
     # -- Hierarchical summarization ------------------------------------------
     chunks = build_chunks(transcript_entries)
-    logger.info("[youtube_agent] built %d chunks for video_id=%s", len(chunks), video_id)
+    logger.info(
+        "[youtube_agent] built %d chunks for video_id=%s", len(chunks), video_id
+    )
 
     chunk_summaries = await summarize_chunks(chunks)
     if not chunk_summaries:
-        logger.error("[youtube_agent] all chunk summaries failed for video_id=%s", video_id)
-        return _error_response("Failed to summarize the video transcript. Please try again.")
+        logger.error(
+            "[youtube_agent] all chunk summaries failed for video_id=%s", video_id
+        )
+        return _error_response(
+            "Failed to summarize the video transcript. Please try again."
+        )
 
     summary, key_points = await build_final_summary(chunk_summaries, title, channel)
 
@@ -147,7 +160,9 @@ async def youtube_agent_node(state: AxonState) -> dict:
 
     logger.info(
         "[youtube_agent] done video_id=%s summary_len=%d key_points=%d",
-        video_id, len(summary), len(key_points),
+        video_id,
+        len(summary),
+        len(key_points),
     )
 
     messages: list[ToolMessage] = []

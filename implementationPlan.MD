@@ -267,7 +267,7 @@
 
 ### Overall flow
 
-```text
+````text
 User pastes YouTube URL
   → supervisor (pас 1, with tools) detects URL → calls transfer_to_youtube_agent
   → youtube_agent:
@@ -286,29 +286,26 @@ User: "yes save it"
 ```sql
       INSERT into video_transcripts
       -- Also embed + INSERT summary into memory_entries (so memory_agent can recall it)
-```
+````
 
-  → supervisor: "Saved ✓ — also indexed in your memory for future recall"
+→ supervisor: "Saved ✓ — also indexed in your memory for future recall"
 
 User: "generate audio of the summary"
-  → supervisor calls generate_tts()
-  → generate_tts tool:
-      1. POST to OpenRouter TTS API (`openai/gpt-audio-mini`, `modalities: ["audio"]`)
-      2. Receive base64 audio, decode to bytes
-      3. Upload to Supabase Storage bucket "audio"
-      4. Return {public_url, filename, duration_estimate}
-  → supervisor: "Audio ready — [link]. Want me to save it to your library?"
+→ supervisor calls generate_tts()
+→ generate_tts tool: 1. POST to OpenRouter TTS API (`openai/gpt-audio-mini`, `modalities: ["audio"]`) 2. Receive base64 audio, decode to bytes 3. Upload to Supabase Storage bucket "audio" 4. Return {public_url, filename, duration_estimate}
+→ supervisor: "Audio ready — [link]. Want me to save it to your library?"
 
 User: "yes"
-  → supervisor calls save_audio_entry()
-  → save_audio_entry tool:
+→ supervisor calls save_audio_entry()
+→ save_audio_entry tool:
 
 ```sql
       INSERT into audio_entries table
 ```
 
-  → supervisor: "Saved to your audio library ✓"
-```
+→ supervisor: "Saved to your audio library ✓"
+
+````
 
 ---
 
@@ -377,7 +374,8 @@ User: "yes"
   summary     text NOT NULL,
   key_points  jsonb DEFAULT '[]',   -- string[]
   created_at  timestamptz DEFAULT now()
-  ```
+````
+
 - [ ] RLS: `user_id = auth.uid()` on SELECT / INSERT / DELETE
 - [ ] Index on `(user_id, created_at DESC)`
 
