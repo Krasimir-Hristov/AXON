@@ -107,8 +107,12 @@ async def save_transcript(
     return saved
 
 
-async def list_transcripts(user_id: str) -> list[VideoTranscriptOut]:
-    """Return all saved transcripts for a user, newest first."""
+async def list_transcripts(
+    user_id: str,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[VideoTranscriptOut]:
+    """Return saved transcripts for a user, newest first, with pagination."""
     client = await get_supabase_client()
     try:
         response = (
@@ -116,6 +120,7 @@ async def list_transcripts(user_id: str) -> list[VideoTranscriptOut]:
             .select(_SELECT_COLS)
             .eq("user_id", user_id)
             .order("created_at", desc=True)
+            .range(offset, offset + limit - 1)
             .execute()
         )
     except Exception:
@@ -171,7 +176,7 @@ async def delete_transcript(
             await client.table("memory_entries")
             .delete()
             .eq("user_id", user_id)
-            .eq("metadata->>video_id", row.video_id)
+            .filter("metadata->>video_id", "eq", row.video_id)
             .execute()
         )
         deleted_count = len(mem_response.data or [])

@@ -37,13 +37,13 @@ from langchain_core.tools import tool
 from app.agents.state import AxonState
 from app.agents.subagents.youtube_fetcher import extract_video_id
 from app.core.config import settings
+from app.features.youtube.tool import SAVE_TRANSCRIPT_TOOL_NAME
 
 logger = logging.getLogger(__name__)
 
 # Tool name constants — imported by the respective sub-agent modules and orchestrator.py.
 HANDOFF_TOOL_NAME = "transfer_to_memory_agent"
 YOUTUBE_HANDOFF_TOOL_NAME = "transfer_to_youtube_agent"
-SAVE_TRANSCRIPT_TOOL_NAME = "save_video_transcript"
 
 _SUPERVISOR_SYSTEM_PROMPT = """\
 You are AXON, a helpful personal AI assistant.
@@ -125,13 +125,14 @@ After presenting a YouTube video summary, you MUST ask the user:
 "Would you like me to save this to your library?"
 
 When the user confirms they want to save (any phrasing: "yes", "save it",
-"запази", "да", "go ahead", "please save") AND a YouTube summary ToolMessage
-is present in the current conversation history:
+"запази", "да", "go ahead", "please save") AND the conversation history contains
+a prior assistant message that presented a YouTube video summary (i.e. a message
+with a title, summary paragraph, and key points):
 - Call `save_video_transcript()` with NO arguments.
 - Your response MUST consist ONLY of the tool call — zero text before or after.
 
 Do NOT call `save_video_transcript` if:
-- There is no YouTube summary ToolMessage in the conversation history.
+- The conversation history contains no prior assistant YouTube summary.
 - The user has not explicitly confirmed they want to save.
 - The user says "no", "skip", "не", or similar.
 """

@@ -3,7 +3,7 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.core.limiter import limiter
 from app.core.security import get_current_user
@@ -19,10 +19,12 @@ router = APIRouter(prefix="/youtube", tags=["youtube"])
 @limiter.limit("60/minute")
 async def list_transcripts_endpoint(
     request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     current_user: UserSchema = Depends(get_current_user),
 ) -> list[VideoTranscriptOut]:
-    """Return all saved YouTube transcripts for the authenticated user."""
-    return await service.list_transcripts(current_user.id)
+    """Return saved YouTube transcripts for the authenticated user (paginated)."""
+    return await service.list_transcripts(current_user.id, limit=limit, offset=offset)
 
 
 @router.get("/{transcript_id}", response_model=VideoTranscriptOut)
