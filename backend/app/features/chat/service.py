@@ -10,9 +10,11 @@ from app.agents.orchestrator import graph
 from app.agents.state import AxonState
 from app.features.auth.schemas import UserSchema
 from app.features.chat.conversation_service import (
+    get_conversation_youtube_context,
     get_or_create_conversation,
     load_history,
     save_message,
+    update_conversation_youtube_context,
 )
 from app.features.chat.schemas import ChatRequest, SSEEvent
 
@@ -61,8 +63,11 @@ async def stream_chat(
         yield _format(SSEEvent(type="done"))
         return
 
-    # ── 2. Load history ───────────────────────────────────────────────────────
+    # ── 2. Load history + persisted youtube_context ─────────────────────────
     history = await load_history(conversation_id, user.id, limit=40)
+    saved_youtube_context = await get_conversation_youtube_context(
+        conversation_id, user.id
+    )
 
     # ── 3. Persist user message (original, unmasked) ────────────────────
     await save_message(conversation_id, user.id, "user", request.message)
@@ -83,6 +88,7 @@ async def stream_chat(
         "memory_context": [],
         "memory_threshold": request.memory_threshold,
         "memory_limit": request.memory_limit,
+        "youtube_context": saved_youtube_context,
     }
 
     collected: list[str] = []
@@ -100,10 +106,18 @@ async def stream_chat(
         supervisor_invocation = 0
         memory_agent_invoked = False
         pass1_buffer: list[str] = []
+        pending_youtube_context: str | None = None
 
         async for event in graph.astream_events(initial_state, version="v2"):
             kind = event.get("event")
             node = event.get("metadata", {}).get("langgraph_node", "")
+
+            # Capture youtube_context when youtube_agent finishes.
+            if kind == "on_chain_end" and node == "youtube_agent":
+                ctx = event.get("data", {}).get("output", {}).get("youtube_context", "")
+                if ctx:
+                    pending_youtube_context = ctx
+                continue
 
             # Track supervisor invocations so we know which pass we're on.
             if kind == "on_chain_start" and node == "supervisor":
@@ -124,6 +138,13 @@ async def stream_chat(
                 yield _format(
                     SSEEvent(type="tool_use", content="Fetching YouTube transcript…")
                 )
+                continue
+
+            # Save-transcript node starting — emit tool_use status.
+            if kind == "on_chain_start" and node == "save_transcript":
+                memory_agent_invoked = True  # blocks pass-1 flush
+                pass1_buffer.clear()
+                yield _format(SSEEvent(type="tool_use", content="Saving to library…"))
                 continue
 
             if kind != "on_chat_model_stream":
@@ -171,9 +192,13 @@ async def stream_chat(
         yield _format(SSEEvent(type="error", content="AI service unavailable"))
 
     finally:
-        # ── 6. Persist assistant reply ────────────────────────────────────────
+        # ── 6. Persist assistant reply + updated youtube_context ──────────────
         if collected:
             await save_message(
                 conversation_id, user.id, "assistant", "".join(collected)
+            )
+        if pending_youtube_context:
+            await update_conversation_youtube_context(
+                conversation_id, user.id, pending_youtube_context
             )
         yield _format(SSEEvent(type="done"))

@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 # Tool name constants — imported by the respective sub-agent modules and orchestrator.py.
 HANDOFF_TOOL_NAME = "transfer_to_memory_agent"
 YOUTUBE_HANDOFF_TOOL_NAME = "transfer_to_youtube_agent"
+SAVE_TRANSCRIPT_TOOL_NAME = "save_video_transcript"
 
 _SUPERVISOR_SYSTEM_PROMPT = """\
 You are AXON, a helpful personal AI assistant.
@@ -117,6 +118,22 @@ If the tool returns an error string (not JSON), relay the error to the user poli
 Do NOT call `transfer_to_youtube_agent` if:
 - The user only mentions YouTube in general without an actual URL.
 - A ToolMessage from youtube_agent is already present in the current turn.
+
+## Save YouTube transcript — MANDATORY usage rules
+
+After presenting a YouTube video summary, you MUST ask the user:
+"Would you like me to save this to your library?"
+
+When the user confirms they want to save (any phrasing: "yes", "save it",
+"запази", "да", "go ahead", "please save") AND a YouTube summary ToolMessage
+is present in the current conversation history:
+- Call `save_video_transcript()` with NO arguments.
+- Your response MUST consist ONLY of the tool call — zero text before or after.
+
+Do NOT call `save_video_transcript` if:
+- There is no YouTube summary ToolMessage in the conversation history.
+- The user has not explicitly confirmed they want to save.
+- The user says "no", "skip", "не", or similar.
 """
 
 
@@ -144,6 +161,18 @@ def transfer_to_youtube_agent() -> str:
     return "YouTube agent activated."  # pragma: no cover
 
 
+@tool(SAVE_TRANSCRIPT_TOOL_NAME)
+def save_video_transcript() -> str:  # noqa: D401
+    """Save the most recently fetched YouTube video transcript to the library.
+
+    Call this only after the user explicitly confirms they want to save the
+    video summary that was just presented (i.e. a youtube_agent ToolMessage
+    exists in the current conversation history).
+    """
+    # The tool body is never executed — orchestrator routes to save_transcript_node.
+    return "Save transcript activated."  # pragma: no cover
+
+
 # ---------------------------------------------------------------------------
 # Model cache (keyed by model_id x has_tools to avoid rebuilding per request)
 # ---------------------------------------------------------------------------
@@ -162,7 +191,13 @@ def _get_model(model_id: str, with_tools: bool) -> Runnable:
             streaming=True,
         )
         _model_cache[key] = (
-            base.bind_tools([transfer_to_memory_agent, transfer_to_youtube_agent])
+            base.bind_tools(
+                [
+                    transfer_to_memory_agent,
+                    transfer_to_youtube_agent,
+                    save_video_transcript,
+                ]
+            )
             if with_tools
             else base
         )
