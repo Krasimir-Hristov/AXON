@@ -36,7 +36,7 @@ async def _get_jwks() -> dict:
             _jwks_cache_ts = time.monotonic()
             logger.info("JWKS refreshed from %s", url)
             return _jwks_cache
-    except (httpx.HTTPError, Exception) as exc:
+    except Exception as exc:
         logger.exception("JWKS fetch failed for %s: %s", url, exc)
         if _jwks_cache:
             return _jwks_cache

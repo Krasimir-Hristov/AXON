@@ -8,10 +8,13 @@ const DialogRoot = Dialog.Root;
 const DialogTrigger = Dialog.Trigger;
 const DialogClose = Dialog.Close;
 
-const DialogBackdrop = React.forwardRef<
-  React.ElementRef<typeof Dialog.Backdrop>,
-  React.ComponentPropsWithoutRef<typeof Dialog.Backdrop>
->(({ className, ...props }, ref) => (
+const DialogBackdrop = ({
+  className,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof Dialog.Backdrop> & {
+  ref?: React.Ref<React.ElementRef<typeof Dialog.Backdrop>>;
+}) => (
   <Dialog.Backdrop
     ref={ref}
     className={cn(
@@ -22,13 +25,16 @@ const DialogBackdrop = React.forwardRef<
     )}
     {...props}
   />
-));
-DialogBackdrop.displayName = 'DialogBackdrop';
+);
 
-const DialogPopup = React.forwardRef<
-  React.ElementRef<typeof Dialog.Popup>,
-  React.ComponentPropsWithoutRef<typeof Dialog.Popup>
->(({ className, children, ...props }, ref) => (
+const DialogPopup = ({
+  className,
+  children,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof Dialog.Popup> & {
+  ref?: React.Ref<React.ElementRef<typeof Dialog.Popup>>;
+}) => (
   <Dialog.Portal>
     <DialogBackdrop />
     <Dialog.Popup
@@ -46,32 +52,35 @@ const DialogPopup = React.forwardRef<
       {children}
     </Dialog.Popup>
   </Dialog.Portal>
-));
-DialogPopup.displayName = 'DialogPopup';
+);
 
-const DialogTitle = React.forwardRef<
-  React.ElementRef<typeof Dialog.Title>,
-  React.ComponentPropsWithoutRef<typeof Dialog.Title>
->(({ className, ...props }, ref) => (
+const DialogTitle = ({
+  className,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof Dialog.Title> & {
+  ref?: React.Ref<React.ElementRef<typeof Dialog.Title>>;
+}) => (
   <Dialog.Title
     ref={ref}
     className={cn('text-base font-semibold text-[#e4e1ed]', className)}
     {...props}
   />
-));
-DialogTitle.displayName = 'DialogTitle';
+);
 
-const DialogDescription = React.forwardRef<
-  React.ElementRef<typeof Dialog.Description>,
-  React.ComponentPropsWithoutRef<typeof Dialog.Description>
->(({ className, ...props }, ref) => (
+const DialogDescription = ({
+  className,
+  ref,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof Dialog.Description> & {
+  ref?: React.Ref<React.ElementRef<typeof Dialog.Description>>;
+}) => (
   <Dialog.Description
     ref={ref}
     className={cn('mt-1.5 text-sm text-[#6b6b8a]', className)}
     {...props}
   />
-));
-DialogDescription.displayName = 'DialogDescription';
+);
 
 export {
   DialogRoot,

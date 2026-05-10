@@ -236,8 +236,11 @@ async def update_conversation_title(
     """Update a conversation's title.
 
     Returns the updated ConversationOut, or None if not found / not owned.
-    supabase-py v2 update() builder does not support .select() chaining, so we
-    execute the update first, then fetch the updated row in a separate query.
+
+    Note: supabase-py v2 (postgrest-py) does not support .select() chaining
+    after .update() on AsyncFilterRequestBuilder. Two queries are required:
+    update first, then fetch the updated row.
+    See: https://github.com/supabase-community/postgrest-py/issues/394
     """
     client = await get_supabase_client()
     try:

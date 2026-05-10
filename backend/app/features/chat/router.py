@@ -116,6 +116,8 @@ async def update_conversation(
         updated = await update_conversation_title(
             str(conversation_id), current_user.id, payload.title
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception(
             "update_conversation failed conversation_id=%s user_id=%s",

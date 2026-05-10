@@ -63,6 +63,7 @@ const ConversationRow = ({
   onDeleted,
 }: RowProps) => {
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [newTitle, setNewTitle] = useState(conversation.title);
   const userId = useUserId();
@@ -82,9 +83,17 @@ const ConversationRow = ({
     useDeleteConversation();
 
   function handleDeleteConfirm() {
-    setDeleteOpen(false);
+    setDeleteError(null);
     deleteConv(conversation.id, {
-      onSuccess: () => onDeleted(conversation.id),
+      onSuccess: () => {
+        setDeleteOpen(false);
+        onDeleted(conversation.id);
+      },
+      onError: (err) => {
+        setDeleteError(
+          err instanceof Error ? err.message : 'Failed to delete conversation',
+        );
+      },
     });
   }
 
@@ -196,7 +205,13 @@ const ConversationRow = ({
         </button>
 
         {/* Delete button — opens confirmation dialog */}
-        <DialogRoot open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogRoot
+          open={deleteOpen}
+          onOpenChange={(open) => {
+            setDeleteOpen(open);
+            if (!open) setDeleteError(null);
+          }}
+        >
           <button
             type='button'
             aria-label='Delete conversation'
@@ -221,16 +236,23 @@ const ConversationRow = ({
               This will permanently delete &ldquo;{conversation.title}&rdquo;
               and all its messages. This action cannot be undone.
             </DialogDescription>
+            {deleteError && (
+              <p className='mt-3 text-sm text-[#ff6b6b]'>{deleteError}</p>
+            )}
             <div className='mt-5 flex justify-end gap-2'>
-              <DialogClose className='rounded-lg border border-[#2a2a3d] bg-transparent px-4 py-2 text-sm text-[#9b9bb8] transition-colors hover:bg-[#1e1e2e] hover:text-[#e4e1ed] cursor-pointer'>
+              <DialogClose
+                disabled={deleteLoading}
+                className='rounded-lg border border-[#2a2a3d] bg-transparent px-4 py-2 text-sm text-[#9b9bb8] transition-colors hover:bg-[#1e1e2e] hover:text-[#e4e1ed] cursor-pointer disabled:pointer-events-none disabled:opacity-50'
+              >
                 Cancel
               </DialogClose>
               <button
                 type='button'
                 onClick={handleDeleteConfirm}
-                className='rounded-lg bg-[#ff4444]/90 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#ff4444] cursor-pointer'
+                disabled={deleteLoading}
+                className='rounded-lg bg-[#ff4444]/90 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#ff4444] cursor-pointer disabled:pointer-events-none disabled:opacity-50'
               >
-                Delete
+                {deleteLoading ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </DialogPopup>
