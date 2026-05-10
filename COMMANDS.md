@@ -2,8 +2,9 @@
 
 ## Стартиране на Backend сървъра
 
-```bash
+```powershell
 cd backend
+.\.venv\Scripts\Activate.ps1
 uvicorn app.main:app --reload
 ```
 

@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -75,3 +75,23 @@ app.include_router(memory_router, prefix="/api/v1")
 async def health_check() -> JSONResponse:
     """Liveness probe — returns 200 OK when the API process is running."""
     return JSONResponse({"status": "ok", "version": app.version})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all for unhandled exceptions.
+
+    Without this, Starlette's ServerErrorMiddleware (outermost layer) intercepts
+    unhandled exceptions and returns a 500 response *directly*, bypassing
+    CORSMiddleware entirely.  The browser then gets a CORS-blocked response and
+    raises TypeError: Failed to fetch instead of a readable HTTP 500 error.
+
+    Registering this handler in FastAPI's ExceptionMiddleware (which sits *inside*
+    CORSMiddleware) ensures the 500 response travels through the CORS layer and
+    receives the required Access-Control-Allow-Origin header.
+    """
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )

@@ -1,6 +1,11 @@
 """Application settings — reads all env vars from .env at startup."""
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve .env relative to this file so uvicorn can be started from any cwd.
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 
 
 class Settings(BaseSettings):
@@ -46,7 +51,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(
-        env_file=".env",  # loaded relative to the cwd (backend/)
+        env_file=str(_ENV_FILE),  # absolute path — works regardless of cwd
         env_file_encoding="utf-8",
         case_sensitive=False,  # SUPABASE_URL == supabase_url
     )

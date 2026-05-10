@@ -236,6 +236,8 @@ async def update_conversation_title(
     """Update a conversation's title.
 
     Returns the updated ConversationOut, or None if not found / not owned.
+    supabase-py v2 update() builder does not support .select() chaining, so we
+    execute the update first, then fetch the updated row in a separate query.
     """
     client = await get_supabase_client()
     try:
@@ -244,14 +246,31 @@ async def update_conversation_title(
             .update({"title": title})
             .eq("id", conversation_id)
             .eq("user_id", user_id)
-            .select("id, title, model_id, created_at, updated_at")
             .execute()
         )
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         logger.exception(
-            "update_conversation_title: failed conversation_id=%s", conversation_id
+            "update_conversation_title: update failed conversation_id=%s",
+            conversation_id,
         )
         raise
     if not result.data:
         return None
-    return ConversationOut.model_validate(result.data[0])
+    try:
+        fetch = (
+            await client.table("conversations")
+            .select("id, title, model_id, created_at, updated_at")
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception(
+            "update_conversation_title: fetch failed conversation_id=%s",
+            conversation_id,
+        )
+        raise
+    if not fetch.data:
+        return None
+    return ConversationOut.model_validate(fetch.data[0])

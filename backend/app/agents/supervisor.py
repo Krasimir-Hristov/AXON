@@ -20,6 +20,7 @@ Two model singletons are kept at module level:
 """
 
 import logging
+import uuid
 
 from fastapi import HTTPException, status
 from langchain.chat_models import init_chat_model
@@ -34,6 +35,7 @@ from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import tool
 
 from app.agents.state import AxonState
+from app.agents.subagents.youtube_fetcher import extract_video_id
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -194,6 +196,47 @@ async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
     )
     current_turn = messages[last_human_idx + 1 :]
     memory_done = any(isinstance(m, ToolMessage) for m in current_turn)
+
+    # Fast-path: if the last HumanMessage contains a YouTube URL and no tool has
+    # run this turn yet, skip the LLM and emit the handoff tool-call directly.
+    # This makes YouTube routing deterministic and model-agnostic — the LLM
+    # cannot accidentally answer YouTube requests without calling the tool.
+    if not memory_done:
+        _last_human = next(
+            (m for m in reversed(messages) if isinstance(m, HumanMessage)), None
+        )
+        if _last_human:
+            _human_text = (
+                _last_human.content
+                if isinstance(_last_human.content, str)
+                else " ".join(
+                    p
+                    if isinstance(p, str)
+                    else p.get("text", "")
+                    if isinstance(p, dict)
+                    else getattr(p, "text", "")
+                    for p in _last_human.content
+                )
+            )
+            if extract_video_id(_human_text):
+                logger.info(
+                    "[supervisor] YouTube URL detected — bypassing LLM, routing directly"
+                )
+                return {
+                    "messages": [
+                        AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "name": YOUTUBE_HANDOFF_TOOL_NAME,
+                                    "args": {},
+                                    "id": str(uuid.uuid4()),
+                                    "type": "tool_call",
+                                }
+                            ],
+                        )
+                    ]
+                }
 
     # Build the system prompt(s). The base AXON system prompt is always
     # prepended so the model has a stable role definition; without it Grok and

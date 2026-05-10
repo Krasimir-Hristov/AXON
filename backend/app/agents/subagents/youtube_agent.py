@@ -12,7 +12,7 @@ import asyncio
 import logging
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from youtube_transcript_api import NoTranscriptFound, TranscriptsDisabled
+from youtube_transcript_api import NoTranscriptFound, TranscriptsDisabled, VideoUnavailable
 
 from app.agents.state import AxonState
 from app.agents.subagents.youtube_chunker import build_chunks
@@ -105,6 +105,11 @@ async def youtube_agent_node(state: AxonState) -> dict:
         logger.warning("[youtube_agent] no transcript found for video_id=%s", video_id)
         return _error_response(
             "No transcript was found for this video. It may not have captions available."
+        )
+    except VideoUnavailable:
+        logger.warning("[youtube_agent] video unavailable for video_id=%s", video_id)
+        return _error_response(
+            "This video is unavailable or private — I can't access its transcript."
         )
     except Exception:
         logger.exception("[youtube_agent] fetch failed for video_id=%s", video_id)

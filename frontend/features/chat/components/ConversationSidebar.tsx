@@ -6,6 +6,13 @@ import { formatDistanceToNow } from 'date-fns';
 import { MessageSquarePlus, Trash2, Edit2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  DialogRoot,
+  DialogPopup,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from '@/components/ui/dialog';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useConversations,
@@ -55,7 +62,7 @@ const ConversationRow = ({
   onSelect,
   onDeleted,
 }: RowProps) => {
-  const [confirming, setConfirming] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [newTitle, setNewTitle] = useState(conversation.title);
   const userId = useUserId();
@@ -69,29 +76,13 @@ const ConversationRow = ({
   useEffect(() => {
     setNewTitle(conversation.title);
   }, [conversation.title]);
-  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const { mutate: deleteConv, isPending: deleteLoading } =
     useDeleteConversation();
 
-  // Auto-cancel confirm state after 3 s of no second click.
-  useEffect(() => {
-    if (!confirming) return;
-    confirmTimerRef.current = setTimeout(() => setConfirming(false), 3000);
-    return () => {
-      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
-    };
-  }, [confirming]);
-
-  function handleDeleteClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (!confirming) {
-      setConfirming(true);
-      return;
-    }
-    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
-    setConfirming(false);
+  function handleDeleteConfirm() {
+    setDeleteOpen(false);
     deleteConv(conversation.id, {
       onSuccess: () => onDeleted(conversation.id),
     });
@@ -191,7 +182,7 @@ const ConversationRow = ({
         <span className='mt-0.5 text-xs text-[#6b6b8a]'>{relativeTime}</span>
       </button>
 
-      {/* Action buttons — visible on hover or while confirming */}
+      {/* Action buttons — visible on hover */}
       <div className='absolute right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-all'>
         {/* Rename button */}
         <button
@@ -204,31 +195,47 @@ const ConversationRow = ({
           <Edit2 className='h-3.5 w-3.5' />
         </button>
 
-        {/* Delete button */}
-        <button
-          type='button'
-          aria-label='Delete conversation'
-          disabled={deleteLoading}
-          onClick={handleDeleteClick}
-          className={[
-            'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all cursor-pointer',
-            confirming
-              ? 'bg-[#ff4444]/20 text-[#ff4444]'
-              : 'text-[#6b6b8a] hover:bg-[#2a2a3d] hover:text-[#ff6b6b]',
-            deleteLoading ? 'pointer-events-none opacity-50' : '',
-          ].join(' ')}
-          title={confirming ? 'Click again to confirm' : 'Delete conversation'}
-        >
-          <Trash2 className='h-3.5 w-3.5' />
-        </button>
-      </div>
+        {/* Delete button — opens confirmation dialog */}
+        <DialogRoot open={deleteOpen} onOpenChange={setDeleteOpen}>
+          <button
+            type='button'
+            aria-label='Delete conversation'
+            disabled={deleteLoading}
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleteOpen(true);
+            }}
+            className={[
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all cursor-pointer',
+              'text-[#6b6b8a] hover:bg-[#2a2a3d] hover:text-[#ff6b6b]',
+              deleteLoading ? 'pointer-events-none opacity-50' : '',
+            ].join(' ')}
+            title='Delete conversation'
+          >
+            <Trash2 className='h-3.5 w-3.5' />
+          </button>
 
-      {/* Screen-reader live region for confirm state */}
-      {confirming && (
-        <span className='sr-only' aria-live='polite'>
-          Click delete again to confirm removing this conversation.
-        </span>
-      )}
+          <DialogPopup>
+            <DialogTitle>Delete conversation?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete &ldquo;{conversation.title}&rdquo;
+              and all its messages. This action cannot be undone.
+            </DialogDescription>
+            <div className='mt-5 flex justify-end gap-2'>
+              <DialogClose className='rounded-lg border border-[#2a2a3d] bg-transparent px-4 py-2 text-sm text-[#9b9bb8] transition-colors hover:bg-[#1e1e2e] hover:text-[#e4e1ed] cursor-pointer'>
+                Cancel
+              </DialogClose>
+              <button
+                type='button'
+                onClick={handleDeleteConfirm}
+                className='rounded-lg bg-[#ff4444]/90 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#ff4444] cursor-pointer'
+              >
+                Delete
+              </button>
+            </div>
+          </DialogPopup>
+        </DialogRoot>
+      </div>
     </div>
   );
 };

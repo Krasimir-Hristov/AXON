@@ -1,5 +1,6 @@
 """Chat router — streaming chat and conversation CRUD endpoints, JWT-protected."""
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -23,6 +24,7 @@ from app.features.chat.schemas import (
 from app.features.chat.service import stream_chat
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/stream")
@@ -110,9 +112,19 @@ async def update_conversation(
 
     Returns the updated conversation, or 404 if not found or not owned by the user.
     """
-    updated = await update_conversation_title(
-        str(conversation_id), current_user.id, payload.title
-    )
+    try:
+        updated = await update_conversation_title(
+            str(conversation_id), current_user.id, payload.title
+        )
+    except Exception as exc:
+        logger.exception(
+            "update_conversation failed conversation_id=%s user_id=%s",
+            conversation_id,
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=500, detail="Failed to update conversation"
+        ) from exc
     if updated is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return updated
