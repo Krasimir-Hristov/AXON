@@ -17,6 +17,7 @@ from app.features.auth.router import router as auth_router
 from app.features.chat.router import router as chat_router
 from app.features.memory.router import router as memory_router
 from app.features.models.router import router as models_router
+from app.features.youtube.router import router as youtube_router
 
 # basicConfig is a no-op when uvicorn has already added root handlers.
 # Explicitly set the level on every app.* logger instead.
@@ -69,6 +70,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(models_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(memory_router, prefix="/api/v1")
+app.include_router(youtube_router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health", tags=["health"])

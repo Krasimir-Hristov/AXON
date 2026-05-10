@@ -9,6 +9,7 @@ import {
   Brain,
   Database,
   Play,
+  Bookmark,
   Menu,
   X,
 } from 'lucide-react';
@@ -222,6 +223,8 @@ const ChatWindow = () => {
                   <div className='flex items-center gap-2 text-xs text-[#c0c1ff]'>
                     {toolStatus.startsWith('Fetching YouTube') ? (
                       <Play className='h-3.5 w-3.5 shrink-0 animate-pulse text-red-400' />
+                    ) : toolStatus.startsWith('Saving') ? (
+                      <Bookmark className='h-3.5 w-3.5 shrink-0 animate-pulse text-[#c0c1ff]' />
                     ) : (
                       <Database className='h-3.5 w-3.5 shrink-0 animate-pulse' />
                     )}
