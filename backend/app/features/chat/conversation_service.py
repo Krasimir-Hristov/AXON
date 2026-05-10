@@ -244,7 +244,8 @@ async def update_conversation_title(
     """
     client = await get_supabase_client()
     try:
-        result = (
+        # First query: apply the update. supabase-py v2 returns no data here.
+        update_result = (
             await client.table("conversations")
             .update({"title": title})
             .eq("id", conversation_id)
@@ -257,10 +258,9 @@ async def update_conversation_title(
             conversation_id,
         )
         raise
-    if not result.data:
-        return None
     try:
-        fetch = (
+        # Second query: fetch the freshly-updated row.
+        select_result = (
             await client.table("conversations")
             .select("id, title, model_id, created_at, updated_at")
             .eq("id", conversation_id)
@@ -270,10 +270,10 @@ async def update_conversation_title(
         )
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         logger.exception(
-            "update_conversation_title: fetch failed conversation_id=%s",
+            "update_conversation_title: select failed conversation_id=%s",
             conversation_id,
         )
         raise
-    if not fetch.data:
+    if not select_result.data:
         return None
-    return ConversationOut.model_validate(fetch.data[0])
+    return ConversationOut.model_validate(select_result.data[0])
