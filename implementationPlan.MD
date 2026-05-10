@@ -362,7 +362,7 @@ User: "yes"
 
 ### 10B-1 — Database (`supabase/migrations/`)
 
-- [ ] New migration: create `video_transcripts` table:
+- [x] New migration: create `video_transcripts` table:
   ```sql
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -376,37 +376,37 @@ User: "yes"
   created_at  timestamptz DEFAULT now()
 ````
 
-- [ ] RLS: `user_id = auth.uid()` on SELECT / INSERT / DELETE
-- [ ] Index on `(user_id, created_at DESC)`
+- [x] RLS: `user_id = auth.uid()` on SELECT / INSERT / DELETE
+- [x] Index on `(user_id, created_at DESC)`
 
 ### 10B-2 — Backend feature layer (`app/features/youtube/`)
 
-- [ ] `__init__.py`
-- [ ] `schemas.py` — `VideoTranscriptOut(id, youtube_url, video_id, title, channel, duration_s, summary, key_points, created_at)`
-- [ ] `service.py`:
+- [x] `__init__.py`
+- [x] `schemas.py` — `VideoTranscriptOut(id, youtube_url, video_id, title, channel, duration_s, summary, key_points, created_at)`
+- [x] `service.py`:
   - `save_transcript(user_id, payload: dict) -> VideoTranscriptOut` — INSERT into `video_transcripts`; also calls `memory_service.add_memory(user_id, text=f"[YouTube] {title}: {summary}")` to index in vector DB
   - `list_transcripts(user_id) -> list[VideoTranscriptOut]`
   - `get_transcript(id, user_id) -> VideoTranscriptOut` — raises 404 if not owned
   - `delete_transcript(id, user_id) -> bool` — also deletes the corresponding `memory_entries` row (match by source tag)
-- [ ] `router.py`:
+- [x] `router.py`:
   - `GET  /api/v1/youtube` — list saved transcripts (newest first); protected; rate limit 60/min
   - `GET  /api/v1/youtube/{id}` — full transcript detail; protected
   - `DELETE /api/v1/youtube/{id}` — 204; protected; rate limit 30/min
 
 ### 10B-3 — Save tool (`app/features/youtube/tool.py`)
 
-- [ ] `@tool async def save_video_transcript(state: AxonState) -> str`:
+- [x] `save_transcript_node` LangGraph node (`app/features/youtube/tool.py`):
   - Reads `state["youtube_context"]` — parse JSON payload
   - Validates payload has required fields (raises if `youtube_context` is empty)
   - Calls `youtube_service.save_transcript(user_id, payload)`
   - Returns confirmation string with title + saved id
-- [ ] Wire tool into supervisor's `bind_tools` list
-- [ ] Supervisor system prompt: when user confirms save ("yes", "save it", "запази") and `youtube_context` is non-empty → call `save_video_transcript`; do not call `transfer_to_youtube_agent` again
-- [ ] Rate limit `POST /api/v1/youtube` (if REST needed) — 10/minute
+- [x] Wire `save_video_transcript` handoff tool into supervisor's `bind_tools` list
+- [x] Supervisor system prompt: when user confirms save ("yes", "save it", "запази") and prior assistant YouTube summary exists → call `save_video_transcript`; do not call `transfer_to_youtube_agent` again
+- [x] Rate limits on GET (60/min) and DELETE (30/min) REST endpoints
 
 ### 10B-4 — Mount router in `app/main.py`
 
-- [ ] Import and mount youtube router
+- [x] Import and mount youtube router
 
 ### 10B-5 — Verification
 

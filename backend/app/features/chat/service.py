@@ -114,10 +114,9 @@ async def stream_chat(
 
             # Capture youtube_context when youtube_agent finishes.
             if kind == "on_chain_end" and node == "youtube_agent":
-                ctx = (
-                    (event.get("data") or {})
-                    .get("output") or {}
-                ).get("youtube_context", "")
+                ctx = ((event.get("data") or {}).get("output") or {}).get(
+                    "youtube_context", ""
+                )
                 if ctx:
                     pending_youtube_context = ctx
                 continue
