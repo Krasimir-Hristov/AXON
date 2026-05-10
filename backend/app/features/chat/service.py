@@ -121,7 +121,9 @@ async def stream_chat(
             if kind == "on_chain_start" and node == "youtube_agent":
                 memory_agent_invoked = True  # reuse flag: any agent blocks pass-1 flush
                 pass1_buffer.clear()
-                yield _format(SSEEvent(type="tool_use", content="Fetching YouTube transcript…"))
+                yield _format(
+                    SSEEvent(type="tool_use", content="Fetching YouTube transcript…")
+                )
                 continue
 
             if kind != "on_chat_model_stream":

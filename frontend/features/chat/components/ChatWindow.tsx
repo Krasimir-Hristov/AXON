@@ -3,7 +3,15 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Sparkles, PenLine, Brain, Database, Play, Menu, X } from 'lucide-react';
+import {
+  Sparkles,
+  PenLine,
+  Brain,
+  Database,
+  Play,
+  Menu,
+  X,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useQueryClient } from '@tanstack/react-query';
 

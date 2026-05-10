@@ -1,9 +1,15 @@
-# AXON — Полезни команди
-
 ## Стартиране на Backend сървъра
 
-```bash
+### Активиране на виртуалната среда (Python venv)
+
+```powershell
 cd backend
+.\.venv\Scripts\Activate.ps1
+```
+
+### Стартиране на сървъра
+
+```bash
 uvicorn app.main:app --reload
 ```
 
