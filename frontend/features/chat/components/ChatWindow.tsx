@@ -22,6 +22,7 @@ import ModelSelector from '@/features/chat/components/ModelSelector';
 import ConversationSidebar from '@/features/chat/components/ConversationSidebar';
 import { useChat } from '@/features/chat/hooks/useChat';
 import { useModels } from '@/features/chat/hooks/useModels';
+import { usePreferredModel } from '@/features/chat/hooks/usePreferredModel';
 import {
   CONVERSATIONS_KEY,
   useConversationMessages,
@@ -53,6 +54,11 @@ const ChatWindow = () => {
     loadConversation,
   } = useChat();
   const { data: models } = useModels();
+  const {
+    preferredModelId,
+    loaded: prefLoaded,
+    changeModel,
+  } = usePreferredModel();
   const [selectedModelId, setSelectedModelId] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // id whose messages we're about to load (pending load pattern)
@@ -63,12 +69,13 @@ const ChatWindow = () => {
   // Fetch messages for the pending conversation selection
   const { data: pendingMessages } = useConversationMessages(pendingLoadId);
 
-  // Set default model once models load
+  // Set initial model from saved preference (falls back to first available model)
   useEffect(() => {
-    if (models && models.length > 0 && !selectedModelId) {
-      setSelectedModelId(models[0].id);
-    }
-  }, [models, selectedModelId]);
+    if (!prefLoaded || !models || models.length === 0 || selectedModelId)
+      return;
+    const saved = models.find((m) => m.id === preferredModelId);
+    setSelectedModelId(saved ? saved.id : models[0].id);
+  }, [prefLoaded, models, preferredModelId, selectedModelId]);
 
   // Load conversation once its messages arrive
   useEffect(() => {
@@ -185,7 +192,10 @@ const ChatWindow = () => {
           <div className='flex items-center gap-2'>
             <ModelSelector
               selectedModelId={selectedModelId}
-              onModelChange={setSelectedModelId}
+              onModelChange={(id) => {
+                setSelectedModelId(id);
+                changeModel(id);
+              }}
               disabled={isStreaming}
             />
             <Link

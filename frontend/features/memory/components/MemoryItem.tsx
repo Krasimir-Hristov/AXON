@@ -4,6 +4,13 @@ import { useState } from 'react';
 import { Trash2, FileText, Hash } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import {
+  DialogRoot,
+  DialogPopup,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from '@/components/ui/dialog';
 import { useDeleteMemory } from '@/features/memory/hooks/useMemory';
 import type { MemoryEntry } from '@/features/memory/types';
 
@@ -14,7 +21,7 @@ interface MemoryItemProps {
 
 const MemoryItem = ({ entry, similarity }: MemoryItemProps) => {
   const deleteMutation = useDeleteMemory();
-  const [confirming, setConfirming] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const sourceFile =
     typeof entry.metadata?.source_file === 'string'
@@ -31,13 +38,11 @@ const MemoryItem = ({ entry, similarity }: MemoryItemProps) => {
 
   const createdAt = new Date(entry.created_at).toLocaleString();
 
-  const handleDelete = () => {
-    if (!confirming) {
-      setConfirming(true);
-      return;
-    }
-    deleteMutation.mutate(entry.id);
-  };
+  function confirmDelete() {
+    deleteMutation.mutate(entry.id, {
+      onSuccess: () => setDeleteOpen(false),
+    });
+  }
 
   return (
     <div className='group relative rounded-xl border border-[#2a2a3d] bg-[#1e1e2e] p-4 transition-colors hover:border-[#494bd6]/50'>
@@ -73,20 +78,15 @@ const MemoryItem = ({ entry, similarity }: MemoryItemProps) => {
         </div>
 
         <Button
-          onClick={handleDelete}
-          onBlur={() => setConfirming(false)}
+          onClick={() => setDeleteOpen(true)}
           size='icon'
           variant='ghost'
           disabled={deleteMutation.isPending}
-          className={
-            confirming
-              ? 'text-[#ffb4ab] hover:bg-[#ffb4ab]/10 '
-              : 'text-[#6b6b8a] opacity-0 hover:bg-[#2a2a3d] hover:text-[#ffb4ab] group-hover:opacity-100 focus-visible:opacity-100 focus:opacity-100 cursor-pointer'
-          }
-          aria-label={confirming ? 'Confirm delete' : 'Delete memory'}
-          title={confirming ? 'Click again to confirm' : 'Delete'}
+          className='text-[#6b6b8a] opacity-0 hover:bg-[#2a2a3d] hover:text-[#ffb4ab] group-hover:opacity-100 focus-visible:opacity-100 focus:opacity-100 cursor-pointer'
+          aria-label='Delete memory'
+          title='Delete'
         >
-          <Trash2 className='h-4 w-4 ' />
+          <Trash2 className='h-4 w-4' />
         </Button>
       </div>
 
@@ -95,6 +95,33 @@ const MemoryItem = ({ entry, similarity }: MemoryItemProps) => {
           Failed to delete: {deleteMutation.error.message}
         </p>
       )}
+
+      <DialogRoot open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogPopup>
+          <DialogTitle>Delete memory?</DialogTitle>
+          <DialogDescription>This action cannot be undone.</DialogDescription>
+          <div className='mt-5 flex justify-end gap-2'>
+            <DialogClose
+              render={
+                <button
+                  type='button'
+                  className='rounded-lg px-4 py-2 text-sm text-[#9b9bb8] hover:bg-[#1e1e2e] hover:text-[#e4e1ed] transition-colors cursor-pointer'
+                />
+              }
+            >
+              Cancel
+            </DialogClose>
+            <button
+              type='button'
+              disabled={deleteMutation.isPending}
+              onClick={confirmDelete}
+              className='rounded-lg bg-[#ff4444]/10 px-4 py-2 text-sm text-[#ff6b6b] hover:bg-[#ff4444]/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer'
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+            </button>
+          </div>
+        </DialogPopup>
+      </DialogRoot>
     </div>
   );
 };
