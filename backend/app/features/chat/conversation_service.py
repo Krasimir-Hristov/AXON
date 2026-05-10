@@ -257,8 +257,6 @@ async def update_conversation_title(
             conversation_id,
         )
         raise
-    if not update_result.data:
-        return None
     try:
         # Second query: fetch the freshly-updated row.
         select_result = (

@@ -19,8 +19,10 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _YOUTUBE_URL_RE = re.compile(
-    r"(?:https?://)?(?:www\.)?"
-    r"(?:youtube\.com/watch\?(?:[^&\s]*&)*v=|youtu\.be/|youtube\.com/shorts/)"
+    r"(?:https?://)?"
+    r"(?:(?:www|m)\.youtube\.com/"
+    r"(?:watch\?(?:[^&\s]*&)*v=|shorts/|live/|embed/)"
+    r"|youtu\.be/)"
     r"([A-Za-z0-9_-]{11})"
 )
 
@@ -67,19 +69,27 @@ async def fetch_transcript(video_id: str) -> list[dict[str, Any]]:
     from youtube_transcript_api import YouTubeTranscriptApi  # local import — heavy dep
 
     def _sync() -> list[dict[str, Any]]:
-        api = YouTubeTranscriptApi()
-        transcript_list = api.list(video_id)
-        # Collect all available language codes — manual transcripts are yielded
-        # before auto-generated ones by the library, so find_transcript() will
-        # prefer manual captions when both exist for the same language.
-        available_languages = [t.language_code for t in transcript_list]
-        logger.debug(
-            "[youtube_fetcher] video_id=%s available transcript languages: %s",
-            video_id,
-            available_languages,
-        )
-        return (
-            transcript_list.find_transcript(available_languages).fetch().to_raw_data()  # type: ignore[no-any-return]
-        )
+        try:
+            api = YouTubeTranscriptApi()
+            transcript_list = api.list(video_id)
+            # Collect all available language codes — manual transcripts are yielded
+            # before auto-generated ones by the library, so find_transcript() will
+            # prefer manual captions when both exist for the same language.
+            available_languages = [t.language_code for t in transcript_list]
+            logger.debug(
+                "[youtube_fetcher] video_id=%s available transcript languages: %s",
+                video_id,
+                available_languages,
+            )
+            return (
+                transcript_list.find_transcript(available_languages).fetch().to_raw_data()  # type: ignore[no-any-return]
+            )
+        except Exception as exc:
+            logger.exception(
+                "[youtube_fetcher] transcript fetch failed video_id=%s: %s",
+                video_id,
+                exc,
+            )
+            raise
 
     return await asyncio.to_thread(_sync)

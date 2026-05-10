@@ -135,14 +135,20 @@ def transfer_to_youtube_agent() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Model cache (keyed by model_id x has_tools to avoid rebuilding per request)
+# Model cache (keyed by model_id + sorted tool names for exact cache hits)
 # ---------------------------------------------------------------------------
 
-_model_cache: dict[tuple[str, bool], Runnable] = {}
+_model_cache: dict[tuple[str, tuple[str, ...]], Runnable] = {}
 
 
-def _get_model(model_id: str, with_tools: bool) -> Runnable:
-    key = (model_id, with_tools)
+def _get_model(model_id: str, tools: list) -> Runnable:
+    """Return a (possibly cached) chat model optionally bound to *tools*.
+
+    The cache key includes the actual tool names so that different tool-sets
+    produce distinct cached models and no stale binding is ever reused.
+    """
+    tool_names: tuple[str, ...] = tuple(t.name for t in tools)
+    key = (model_id, tool_names)
     if key not in _model_cache:
         base = init_chat_model(
             model_id,
@@ -151,11 +157,7 @@ def _get_model(model_id: str, with_tools: bool) -> Runnable:
             api_key=settings.openrouter_api_key,
             streaming=True,
         )
-        _model_cache[key] = (
-            base.bind_tools([transfer_to_memory_agent, transfer_to_youtube_agent])
-            if with_tools
-            else base
-        )
+        _model_cache[key] = base.bind_tools(tools) if tools else base
     return _model_cache[key]
 
 
@@ -236,9 +238,14 @@ async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
     messages = [SystemMessage(content=_SUPERVISOR_SYSTEM_PROMPT), *messages]
 
     # On the second pass (after any sub-agent ran) tools must NOT be bound, or
-    # the model may re-delegate in a loop. Otherwise bind the handoff tool so
-    # it can route to memory_agent.
-    model = _get_model(state["model_id"], with_tools=not agent_ran)
+    # the model may re-delegate in a loop. On the first pass only bind the
+    # memory handoff tool — YouTube routing is handled by the deterministic
+    # fast-path above, so transfer_to_youtube_agent must never be exposed to
+    # the LLM (prevents it from hallucinating YouTube summaries).
+    model = _get_model(
+        state["model_id"],
+        tools=[] if agent_ran else [transfer_to_memory_agent],
+    )
 
     # Stream the model response so that graph.astream_events("v2") in the
     # chat service can pick up on_chat_model_stream events per token.
