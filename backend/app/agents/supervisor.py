@@ -20,6 +20,7 @@ Two model singletons are kept at module level:
 """
 
 import logging
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 from langchain.chat_models import init_chat_model
@@ -34,6 +35,7 @@ from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import tool
 
 from app.agents.state import AxonState
+from app.agents.subagents.youtube_fetcher import extract_video_id
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -91,30 +93,20 @@ Do NOT call `transfer_to_memory_agent` only for:
 - Pure math, coding, or writing tasks with zero personal component.
 - Casual one-word greetings ("hi", "hello") answerable without any context.
 
-## YouTube tool — MANDATORY usage rules
+## YouTube video results
 
-You MUST call `transfer_to_youtube_agent` (do NOT attempt to fetch or describe the
-video yourself) whenever the user's message contains a YouTube video URL in any of
-these formats: `youtube.com/watch?v=`, `youtu.be/`, `youtube.com/shorts/`.
-
-CRITICAL output rule: When calling `transfer_to_youtube_agent`, your response MUST
-consist ONLY of the tool call — zero text content before or after it. Do NOT write
-phrases like "Let me fetch", "Fetching transcript", "Нека да проверя" or anything
-similar. Silence + tool call only.
-
-After `transfer_to_youtube_agent` returns, you will receive a JSON payload with
-fields: `title`, `channel`, `duration_s`, `summary`, `key_points`. Present the
-result as follows:
+When you receive a ToolMessage from the youtube_agent (it contains a JSON payload),
+present the result as follows:
 - **Title** and **Channel** on the first line.
-- **Duration** in minutes (convert from `duration_s`).
+- **Duration** in minutes (convert `duration_s` ÷ 60, round to nearest minute).
 - **Summary** as a paragraph.
-- **Key Points** as a numbered or bulleted list.
+- **Key Points** as a numbered list.
 
-If the tool returns an error string (not JSON), relay the error to the user politely.
+If the ToolMessage content is an error string (not valid JSON), relay the error
+to the user politely.
 
-Do NOT call `transfer_to_youtube_agent` if:
-- The user only mentions YouTube in general without an actual URL.
-- A ToolMessage from youtube_agent is already present in the current turn.
+Do NOT call `transfer_to_youtube_agent` yourself — routing to the YouTube agent
+is handled automatically before you are invoked.
 """
 
 
@@ -193,22 +185,60 @@ async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
         -1,
     )
     current_turn = messages[last_human_idx + 1 :]
-    memory_done = any(isinstance(m, ToolMessage) for m in current_turn)
+    agent_ran = any(isinstance(m, ToolMessage) for m in current_turn)
 
-    # Build the system prompt(s). The base AXON system prompt is always
-    # prepended so the model has a stable role definition; without it Grok and
-    # similar models try to "guess" the user's intent (e.g. interpreting a
-    # plain question as a template request).
+    # -- Deterministic YouTube fast-path ------------------------------------
+    # Detect a YouTube URL in the last HumanMessage without asking the LLM.
+    # This avoids the failure mode where the model ignores the routing
+    # instruction and hallucinates a summary from its training data.
+    if not agent_ran:
+        last_human = next(
+            (m for m in reversed(messages) if isinstance(m, HumanMessage)),
+            None,
+        )
+        if last_human:
+            raw = (
+                last_human.content
+                if isinstance(last_human.content, str)
+                else " ".join(
+                    p
+                    if isinstance(p, str)
+                    else p.get("text", "")
+                    if isinstance(p, dict)
+                    else getattr(p, "text", "")
+                    for p in last_human.content
+                )
+            )
+            if extract_video_id(raw):
+                logger.info(
+                    "[supervisor] YouTube URL detected — fast-path to youtube_agent"
+                )
+                return {
+                    "messages": [
+                        AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "id": str(uuid4()),
+                                    "name": YOUTUBE_HANDOFF_TOOL_NAME,
+                                    "args": {},
+                                    "type": "tool_call",
+                                }
+                            ],
+                        )
+                    ]
+                }
+
     # Always prepend the AXON system prompt. Memory context is already present
     # in state["messages"] as a ToolMessage added by memory_agent_node — no
     # need to duplicate it as a SystemMessage (which would elevate tool output
     # to system-prompt priority).
     messages = [SystemMessage(content=_SUPERVISOR_SYSTEM_PROMPT), *messages]
 
-    # On the second pass (after memory_agent ran) tools must NOT be bound, or
+    # On the second pass (after any sub-agent ran) tools must NOT be bound, or
     # the model may re-delegate in a loop. Otherwise bind the handoff tool so
     # it can route to memory_agent.
-    model = _get_model(state["model_id"], with_tools=not memory_done)
+    model = _get_model(state["model_id"], with_tools=not agent_ran)
 
     # Stream the model response so that graph.astream_events("v2") in the
     # chat service can pick up on_chat_model_stream events per token.
@@ -219,7 +249,7 @@ async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
         logger.info(
             "[supervisor] streaming model=%s with_tools=%s",
             state["model_id"],
-            not memory_done,
+            not agent_ran,
         )
         async for chunk in model.astream(messages, config):
             collected.append(chunk)
@@ -240,7 +270,7 @@ async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
         response = response + c  # type: ignore[assignment]
 
     logger.info(
-        "[supervisor] done, content_len=%d, has_tool_calls=%s",
+        "[supervisor] done content_len=%d has_tool_calls=%s",
         len(str(response.content)),
         bool(getattr(response, "tool_calls", None)),
     )

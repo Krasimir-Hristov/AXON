@@ -56,9 +56,9 @@ async def fetch_oembed(video_id: str) -> dict[str, str]:
 async def fetch_transcript(video_id: str) -> list[dict[str, Any]]:
     """Fetch transcript entries using the youtube-transcript-api v1.x instance API.
 
-    Uses YouTubeTranscriptApi().fetch(video_id).to_raw_data() — compatible with
-    youtube-transcript-api >= 1.2.0. The synchronous call is offloaded to a thread
-    pool via asyncio.to_thread (see module docstring for concurrency notes).
+    Lists all available transcripts for the video (any language), prefers manual
+    over auto-generated captions, and returns the first available one.
+    The synchronous call is offloaded to a thread pool via asyncio.to_thread.
 
     Raises:
         TranscriptsDisabled: if the video has captions disabled.
@@ -68,6 +68,18 @@ async def fetch_transcript(video_id: str) -> list[dict[str, Any]]:
 
     def _sync() -> list[dict[str, Any]]:
         api = YouTubeTranscriptApi()
-        return api.fetch(video_id).to_raw_data()  # type: ignore[no-any-return]
+        transcript_list = api.list(video_id)
+        # Collect all available language codes — manual transcripts are yielded
+        # before auto-generated ones by the library, so find_transcript() will
+        # prefer manual captions when both exist for the same language.
+        available_languages = [t.language_code for t in transcript_list]
+        logger.debug(
+            "[youtube_fetcher] video_id=%s available transcript languages: %s",
+            video_id,
+            available_languages,
+        )
+        return (
+            transcript_list.find_transcript(available_languages).fetch().to_raw_data()  # type: ignore[no-any-return]
+        )
 
     return await asyncio.to_thread(_sync)

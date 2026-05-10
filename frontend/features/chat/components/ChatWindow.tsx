@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Sparkles, PenLine, Brain, Database, Menu, X } from 'lucide-react';
+import { Sparkles, PenLine, Brain, Database, Play, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -212,7 +212,11 @@ const ChatWindow = () => {
                 ))}
                 {toolStatus && (
                   <div className='flex items-center gap-2 text-xs text-[#c0c1ff]'>
-                    <Database className='h-3.5 w-3.5 shrink-0 animate-pulse' />
+                    {toolStatus.startsWith('Fetching YouTube') ? (
+                      <Play className='h-3.5 w-3.5 shrink-0 animate-pulse text-red-400' />
+                    ) : (
+                      <Database className='h-3.5 w-3.5 shrink-0 animate-pulse' />
+                    )}
                     <span>{toolStatus}</span>
                   </div>
                 )}

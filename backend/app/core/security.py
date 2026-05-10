@@ -74,7 +74,9 @@ async def get_current_user(
                 options={"verify_aud": False},
             )
         except JWTError as exc_inner:
-            logger.warning("JWT validation failed (both ES256 and HS256): %s", exc_inner)
+            logger.warning(
+                "JWT validation failed (both ES256 and HS256): %s", exc_inner
+            )
             raise exc from exc_inner
 
     user_id: str | None = payload.get("sub")

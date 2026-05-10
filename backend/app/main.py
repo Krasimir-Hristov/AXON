@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -75,3 +75,19 @@ app.include_router(memory_router, prefix="/api/v1")
 async def health_check() -> JSONResponse:
     """Liveness probe — returns 200 OK when the API process is running."""
     return JSONResponse({"status": "ok", "version": app.version})
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(
+    _request: Request, exc: Exception
+) -> JSONResponse:
+    """Catch-all exception handler.
+
+    FastAPI's default ServerErrorMiddleware generates 500 responses BEFORE
+    CORSMiddleware has a chance to add headers.  Handling exceptions here means
+    our response is produced inside the middleware stack, so CORSMiddleware adds
+    the Access-Control-Allow-Origin header and the browser doesn't treat the
+    failure as a CORS error.
+    """
+    logger.exception("Unhandled exception: %s", exc)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})

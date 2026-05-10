@@ -236,22 +236,45 @@ async def update_conversation_title(
     """Update a conversation's title.
 
     Returns the updated ConversationOut, or None if not found / not owned.
+
+    Note: supabase-py v2 / postgrest-py does not support chaining .select()
+    after .update() in the same query (postgrest-py issue #394). Two separate
+    queries are used: one to apply the update, one to fetch the updated row.
     """
     client = await get_supabase_client()
     try:
-        result = (
+        # First query: apply the update. supabase-py v2 returns no data here.
+        update_result = (
             await client.table("conversations")
             .update({"title": title})
             .eq("id", conversation_id)
             .eq("user_id", user_id)
-            .select("id, title, model_id, created_at, updated_at")
             .execute()
         )
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         logger.exception(
-            "update_conversation_title: failed conversation_id=%s", conversation_id
+            "update_conversation_title: update failed conversation_id=%s",
+            conversation_id,
         )
         raise
-    if not result.data:
+    if not update_result.data:
         return None
-    return ConversationOut.model_validate(result.data[0])
+    try:
+        # Second query: fetch the freshly-updated row.
+        select_result = (
+            await client.table("conversations")
+            .select("id, title, model_id, created_at, updated_at")
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception(
+            "update_conversation_title: select failed conversation_id=%s",
+            conversation_id,
+        )
+        raise
+    if not select_result.data:
+        return None
+    return ConversationOut.model_validate(select_result.data[0])
