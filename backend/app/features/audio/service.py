@@ -89,9 +89,10 @@ async def generate_tts(text: str, user_id: str) -> tuple[bytes, str]:
 
     audio_bytes = response.content
 
-    filename = f"{user_id}/{uuid4()}.mp3"
+    file_uuid = uuid4()
+    filename = f"{user_id}/{file_uuid}.mp3"
     logger.info(
-        "[generate_tts] synthesized %d bytes → %s", len(audio_bytes), filename
+        "[generate_tts] synthesized %d bytes uuid=%s", len(audio_bytes), file_uuid
     )
     return audio_bytes, filename
 
