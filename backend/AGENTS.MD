@@ -16,10 +16,11 @@ sub-agent. Sub-агентите никога не комуникират дир�
 START
   │
   ▼
-supervisor ──(transfer_to_memory_agent)──► memory_agent ──► supervisor ──► END
-           ──(transfer_to_youtube_agent)─► youtube_agent ─► supervisor ──► END
-           ──(save_video_transcript)──────► save_transcript ► supervisor ──► END
-           ──(отговаря директно)──────────────────────────────────────► END
+supervisor ──(transfer_to_memory_agent)──► memory_agent    ──► supervisor ──► END
+           ──(transfer_to_youtube_agent)─► youtube_agent   ──► supervisor ──► END
+           ──(save_video_transcript)──────► save_transcript ──► supervisor ──► END
+           ──(generate_tts)───────────────► generate_tts   ──► supervisor ──► END
+           ──(отговаря директно)────────────────────────────────────────────► END
 ```
 
 Графът се компилира веднъж при стартиране (`orchestrator.py:_build_graph()`) и се
@@ -61,6 +62,7 @@ backend/app/features/youtube/
 | `memory_threshold` | `float`                                      | Праг за cosine similarity при семантично търсене (default 0.35).                                                                                                                         |
 | `memory_limit`     | `int`                                        | Максимален брой резултати от memory search (default 5).                                                                                                                                  |
 | `youtube_context`  | `str`                                        | JSON payload от youtube_agent (video_id, url, title, channel, duration_s, summary, key_points). Пустo string ако няма видео. **Персистира в DB между ходовете** за cross-turn save flow. |
+| `pending_audio`    | `str`                                        | JSON string `{filename, signed_url, text_preview}` от generate_tts_node. Пазен за Phase 10D cross-turn save на аудио файла. Празен string по подразбиране.                               |
 
 ---
 
@@ -86,6 +88,7 @@ LangGraph засича tool_call по `name` и маршрутира към съ
 | `transfer_to_memory_agent`  | `HANDOFF_TOOL_NAME`         | `memory_agent` node    |
 | `transfer_to_youtube_agent` | `YOUTUBE_HANDOFF_TOOL_NAME` | `youtube_agent` node   |
 | `save_video_transcript`     | `SAVE_TRANSCRIPT_TOOL_NAME` | `save_transcript` node |
+| `generate_tts`              | `GENERATE_TTS_TOOL_NAME`    | `generate_tts` node    |
 
 ### Model Cache
 
@@ -382,6 +385,91 @@ Supervisor (pass 2, with_tools=False)
 
 ---
 
+## generate_tts (node)
+
+**Файл:** `features/audio/tool.py`
+
+### Роля
+
+Синтезира текст до реч чрез OpenRouter TTS API, качва MP3 файла в Supabase Storage
+и връща signed URL, който supervisor презентира на потребителя като inline audio player.
+
+### Handoff Tool
+
+```python
+GENERATE_TTS_TOOL_NAME = "generate_tts"
+```
+
+Supervisor е bind-нат с `generate_tts` stub `@tool`. **Тялото никога не се изпълнява** —
+LangGraph засича tool_call по `name` и маршрутира към `generate_tts_node`.
+
+### Поток
+
+```
+1. Извлича tool_call_id + text arg от последния AIMessage tool_call
+2. Валидира: text не е празен
+3. Вика audio_service.generate_tts(text, user_id)
+   a. mask_pii(text) → masked_text (PII не се изпраща към OpenRouter)
+   b. POST {openrouter_base_url}/audio/speech
+      body: { model, input: masked_text, voice, response_format: "mp3" }
+   c. Валидира отговора: non-empty + Content-Type audio/* или MP3 magic bytes
+   d. Returns (mp3_bytes, filename) — filename = "{user_id}/{uuid}.mp3"
+4. Вика audio_service.upload_audio(mp3_bytes, filename)
+   a. Upload to Supabase Storage "audio" bucket
+   b. Creates 7-day signed URL
+   c. Returns signed_url
+5. Записва { filename, signed_url, text_preview } в state["pending_audio"] (Phase 10D)
+6. Връща ToolMessage с markdown [Play audio](signed_url) + save prompt
+```
+
+### Interaction с Supervisor
+
+```
+Supervisor (pass 1, with_tools=True)
+  → Потребителят иска аудио на текст
+  → AIMessage { tool_calls: [{ name: "generate_tts", args: { text: "..." }, id: "abc" }] }
+
+generate_tts_node
+  → mask_pii → OpenRouter /audio/speech → validate bytes → Supabase Storage upload
+  → state["pending_audio"] = '{"filename": "...", "signed_url": "...", "text_preview": "..."}'
+  → ToolMessage { content: "Audio generated...\n\n[Play audio](signed_url)\n\nWant me to save?" }
+
+Supervisor (pass 2, with_tools=False)
+  → Презентира inline audio link на потребителя
+  → Пита дали да запази (Phase 10D)
+```
+
+### Frontend интеграция
+
+- `ChatWindow.tsx` — при `tool_use: "Generating audio…"` SSE event → анимиран лилав `Volume2` иконка
+- `MessageBubble.tsx` — custom `<a>` renderer: ако `href` завършва с `.mp3` → рендерира `<audio controls src={href}>` inline player вместо обикновен линк
+
+### DeepSeek compatibility fix
+
+DeepSeek и подобни модели понякога emit tool calls като plain text (`generate_tts(text="...")`),
+вместо structured `tool_calls`. `supervisor_node` съдържа regex post-processing блок, който
+засича такъв формат и го конвертира към структуриран tool_call преди да върне от node-а.
+Без тази корекция raw текстът би прокапал към frontend-а.
+
+### Security
+
+- **PII masking:** `mask_pii(text)` се вика преди изпращане към OpenRouter — нито едно PII не напуска системата в plaintext
+- **Log hygiene:** `user_id` никога не се логва; само UUID-то на файла се логва при upload; `upload_audio` логва само basename (UUID), не пълния path
+- **Response validation:** MP3 magic bytes + Content-Type проверка преди upload — broken response никога не стига до Storage
+
+### Error handling
+
+| Ситуация               | Поведение                                                      |
+| ---------------------- | -------------------------------------------------------------- |
+| Празен text arg        | ToolMessage с user-friendly съобщение; service не се вика      |
+| OpenRouter HTTP грешка | `RuntimeError` с status code; логвано без PII                  |
+| Network error          | `RuntimeError`; логвано с URL, без payload                     |
+| Invalid audio response | `RuntimeError`; логвано с status/content-type/bytes            |
+| Storage upload fails   | `RuntimeError`; exception логвано с UUID само                  |
+| Signed URL fails       | `RuntimeError`; exception логвано с UUID само                  |
+
+---
+
 ## Orchestrator
 
 **Файл:** `agents/orchestrator.py`
@@ -421,6 +509,7 @@ builder.add_conditional_edges("supervisor", _should_continue, {...})
 builder.add_edge("memory_agent", "supervisor")    # loop back
 builder.add_edge("youtube_agent", "supervisor")   # loop back
 builder.add_edge("save_transcript", "supervisor") # loop back
+builder.add_edge("generate_tts", "supervisor")    # loop back
 ```
 
 Всеки sub-agent loop-ва обратно към supervisor за финалния response. Ре-delegation
@@ -456,6 +545,11 @@ builder.add_edge("save_transcript", "supervisor") # loop back
 | Supervisor → save_transcript       | AIMessage tool_call `save_video_transcript`    | tool_call_id           |
 | save_transcript → youtube.service  | директно извикване                             | payload dict           |
 | save_transcript → Supervisor       | ToolMessage с confirmation                     | text                   |
+| Supervisor → generate_tts          | AIMessage tool_call `generate_tts`             | tool_call_id + text    |
+| generate_tts → audio.service       | директно извикване                             | text, user_id          |
+| audio.service → OpenRouter         | `POST /api/v1/audio/speech` (httpx)            | masked text, mp3 bytes |
+| audio.service → Supabase Storage   | `storage.upload` + `create_signed_url`         | mp3 bytes, signed URL  |
+| generate_tts → Supervisor          | ToolMessage с markdown audio link              | signed URL             |
 | Supervisor → Chat service          | `on_chat_model_stream` SSE events              | tokens                 |
 | Chat service → DB                  | `update_conversation_youtube_context()`        | youtube_context JSON   |
 | Chat service → DB                  | message persistence                            | conversation history   |

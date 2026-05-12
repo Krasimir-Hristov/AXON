@@ -438,47 +438,51 @@ User: "yes"
 
 ### 10C-2 — Config (`app/core/config.py`)
 
-- [ ] Add `tts_model: str = "openai/gpt-audio-mini"` — configurable; `openai/gpt-audio` for higher quality
-- [ ] Add `tts_voice: str = "alloy"` — alloy / echo / fable / onyx / nova / shimmer
-- [ ] Add `audio_bucket: str = "audio"` — Supabase Storage bucket name
+- [x] Add `tts_model: str = "openai/gpt-4o-mini-tts-2025-12-15"` — uses OpenRouter `/audio/speech` endpoint (not chat completions); correct model confirmed via direct API test
+- [x] Add `tts_voice: str = "alloy"` — alloy / echo / fable / onyx / nova / shimmer
+- [x] Add `audio_bucket: str = "audio"` — Supabase Storage bucket name
 
 ### 10C-3 — Supabase Storage setup
 
-- [ ] Create `audio` bucket in Supabase (private, not public)
-- [ ] Bucket policy: authenticated users can INSERT their own files; SELECT only their own; path pattern `{user_id}/*`
+- [x] Create `audio` bucket in Supabase (private, not public) via migration `20260512100000_create_audio_bucket_and_policies.sql`
+- [x] Bucket RLS policies: INSERT/SELECT/DELETE for authenticated users scoped to `{user_id}/*`; predicates use `(select auth.uid())` subquery form (avoids per-row re-evaluation)
 
 ### 10C-4 — TTS service (`app/features/audio/service.py`)
 
-- [ ] `generate_tts(text: str, user_id: str) -> tuple[bytes, str]`:
-  - POST to OpenRouter `/api/v1/chat/completions` via existing `httpx.AsyncClient`
-  - Body: `{"model": settings.tts_model, "modalities": ["text", "audio"], "audio": {"voice": settings.tts_voice, "format": "mp3"}, "messages": [{"role": "user", "content": text}]}`
-  - Header: `Authorization: Bearer {settings.openrouter_api_key}` (same key as LLM calls)
-  - Decode `choices[0].message.audio.data` (base64) → raw mp3 bytes
-  - Returns `(audio_bytes, filename)` where `filename = f"{user_id}/{uuid4()}.mp3"`
-- [ ] `upload_audio(audio_bytes: bytes, filename: str) -> str`:
+- [x] `generate_tts(text: str, user_id: str) -> tuple[bytes, str]`:
+  - Masks PII via `mask_pii(text)` before forwarding to external API
+  - POST to OpenRouter `/api/v1/audio/speech` (not chat completions)
+  - Body: `{"model": settings.tts_model, "input": masked_text, "voice": settings.tts_voice, "response_format": "mp3"}`
+  - Response: raw MP3 bytes (not base64 JSON) — validated via `Content-Type: audio/*` or MP3 magic bytes (`ID3` / `0xFF` sync word)
+  - Error handling: `httpx.HTTPStatusError` + `httpx.RequestError` caught, logged without PII, re-raised as `RuntimeError`
+  - Returns `(audio_bytes, filename)` where `filename = f"{user_id}/{uuid4()}.mp3"`; UUID logged only (never user_id)
+- [x] `upload_audio(audio_bytes: bytes, filename: str) -> str`:
   - Upload to Supabase Storage `audio` bucket
-  - Returns signed URL (1 week expiry) via `storage.create_signed_url(bucket, filename, 604800)`
-- [ ] Text length guard: max 4096 chars (OpenAI TTS limit); truncate with warning log if exceeded
+  - Returns signed URL (7-day expiry); logs only UUID basename (never full path)
+- [x] Text length guard: max 4096 chars; truncate with warning log if exceeded
 
 ### 10C-5 — Generate TTS tool (`app/features/audio/tool.py`)
 
-- [ ] `@tool async def generate_tts(text: str, state: AxonState) -> str`:
-  - Calls `audio_service.generate_tts(text, state["user_id"])`
-  - Calls `audio_service.upload_audio(bytes, filename)`
+- [x] `generate_tts_node(state: AxonState) -> dict` — LangGraph node (not `@tool`-executed; invoked directly by orchestrator, same pattern as `save_transcript_node`):
+  - Reads `text` arg from supervisor's `generate_tts` tool_call in last AIMessage
+  - Calls `audio_service.generate_tts` + `audio_service.upload_audio`
   - Stores `{filename, signed_url, text_preview}` JSON in `state["pending_audio"]`
-  - Returns markdown string with signed URL for supervisor to present to user
-- [ ] Wire tool into supervisor's `bind_tools` list
-- [ ] Supervisor system prompt: when user asks for audio/TTS of summary or any text → call `generate_tts(text=<summary_or_requested_text>)`; present the signed URL as a clickable link; ask "Want me to save this to your audio library?"
+  - Returns `ToolMessage` with markdown `[Play audio](signed_url)` link + save prompt
+- [x] `generate_tts` stub `@tool` bound to supervisor (`bind_tools`); body never executes
+- [x] Supervisor system prompt: when user asks for audio/TTS → call `generate_tts(text=<text>)`; present signed URL as clickable link; ask "Want me to save this?"
+- [x] Frontend `MessageBubble.tsx`: custom `<a>` renderer — if href ends with `.mp3`, renders inline `<audio controls src={href}>` player
+- [x] Frontend `ChatWindow.tsx`: purple animated `Volume2` icon shown during `Generating audio…` tool_use SSE event
 
 ### 10C-6 — State extension
 
-- [ ] Add `pending_audio: str` to `AxonState` — JSON string with `{filename, signed_url, title}` for cross-turn save confirmation
+- [x] Add `pending_audio: str` to `AxonState` — JSON string with `{filename, signed_url, text_preview}` for Phase 10D cross-turn save confirmation
 
 ### 10C-7 — Verification
 
-- [ ] "Generate audio of the summary" → `generate_tts` called → signed URL returned in chat → audio playable
-- [ ] Text > 4096 chars → truncated with warning, audio still generated
-- [ ] Invalid/empty text → tool returns descriptive error message
+- [x] "Generate audio of the summary" → `generate_tts` called → signed URL returned in chat → inline audio player rendered → audio playable
+- [x] Text > 4096 chars → truncated with warning, audio still generated
+- [x] Invalid/empty text → tool returns descriptive error message
+- [x] DeepSeek text-format tool call bug fixed: regex post-processing in `supervisor_node` converts plain-text tool calls to structured `tool_calls` before returning
 
 ---
 
