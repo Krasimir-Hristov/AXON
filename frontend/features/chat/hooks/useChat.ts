@@ -7,9 +7,21 @@ function generateId(): string {
 }
 
 /** Read a float from localStorage; return fallback when absent or NaN. */
-function localFloat(key: string, fallback: number): number {
+function localFloat(key: string, fallback: number, min?: number, max?: number): number {
   const n = Number(localStorage.getItem(key));
-  return isNaN(n) ? fallback : n;
+  if (isNaN(n)) return fallback;
+  if (min !== undefined && n < min) return fallback;
+  if (max !== undefined && n > max) return fallback;
+  return n;
+}
+
+/** Read an integer from localStorage with bounds check; return fallback if invalid. */
+function localInt(key: string, fallback: number, min: number, max: number): number {
+  const n = Number(localStorage.getItem(key));
+  if (isNaN(n) || n < min || n > max || !Number.isInteger(n)) {
+    return fallback;
+  }
+  return n;
 }
 
 /**
@@ -165,8 +177,8 @@ export function useChat() {
             message: content,
             model_id: modelId,
             conversation_id: resolvedConvId,
-            memory_threshold: localFloat('axon:memory:threshold', 0.35),
-            memory_limit: localFloat('axon:memory:limit', 5),
+            memory_threshold: localFloat('axon:memory:threshold', 0.35, 0.0, 1.0),
+            memory_limit: localInt('axon:memory:limit', 5, 1, 20),
           },
           (event: SSEEvent) => {
             if (event.type === 'start') {
