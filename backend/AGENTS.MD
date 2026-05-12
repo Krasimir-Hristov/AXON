@@ -459,14 +459,14 @@ DeepSeek и подобни модели понякога emit tool calls кат�
 
 ### Error handling
 
-| Ситуация               | Поведение                                                      |
-| ---------------------- | -------------------------------------------------------------- |
-| Празен text arg        | ToolMessage с user-friendly съобщение; service не се вика      |
-| OpenRouter HTTP грешка | `RuntimeError` с status code; логвано без PII                  |
-| Network error          | `RuntimeError`; логвано с URL, без payload                     |
-| Invalid audio response | `RuntimeError`; логвано с status/content-type/bytes            |
-| Storage upload fails   | `RuntimeError`; exception логвано с UUID само                  |
-| Signed URL fails       | `RuntimeError`; exception логвано с UUID само                  |
+| Ситуация               | Поведение                                                 |
+| ---------------------- | --------------------------------------------------------- |
+| Празен text arg        | ToolMessage с user-friendly съобщение; service не се вика |
+| OpenRouter HTTP грешка | `RuntimeError` с status code; логвано без PII             |
+| Network error          | `RuntimeError`; логвано с URL, без payload                |
+| Invalid audio response | `RuntimeError`; логвано с status/content-type/bytes       |
+| Storage upload fails   | `RuntimeError`; exception логвано с UUID само             |
+| Signed URL fails       | `RuntimeError`; exception логвано с UUID само             |
 
 ---
 

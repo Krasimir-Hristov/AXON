@@ -102,22 +102,22 @@ Lists all models available on OpenRouter. **In-memory TTL cache 5 min** with `as
 
 **SSE frame types:**
 
-| Type       | Content field                                | When                                      |
-| ---------- | -------------------------------------------- | ----------------------------------------- |
-| `start`    | `conversation_id` (UUID string)              | Immediately after conversation is resolved |
-| `tool_use` | Human-readable status string (see below)     | When a sub-agent node starts              |
-| `token`    | Incremental text chunk from the LLM          | During supervisor pass-2 streaming        |
-| `error`    | Error message string                         | On recoverable or fatal errors            |
-| `done`     | `""` (empty)                                 | Always last, even after errors            |
+| Type       | Content field                            | When                                       |
+| ---------- | ---------------------------------------- | ------------------------------------------ |
+| `start`    | `conversation_id` (UUID string)          | Immediately after conversation is resolved |
+| `tool_use` | Human-readable status string (see below) | When a sub-agent node starts               |
+| `token`    | Incremental text chunk from the LLM      | During supervisor pass-2 streaming         |
+| `error`    | Error message string                     | On recoverable or fatal errors             |
+| `done`     | `""` (empty)                             | Always last, even after errors             |
 
 **`tool_use` content values:**
 
-| Value                          | Trigger node      |
-| ------------------------------ | ----------------- |
-| `"Searching memory…"`          | `memory_agent`    |
-| `"Fetching YouTube transcript…"` | `youtube_agent` |
-| `"Saving to library…"`         | `save_transcript` |
-| `"Generating audio…"`          | `generate_tts`    |
+| Value                            | Trigger node      |
+| -------------------------------- | ----------------- |
+| `"Searching memory…"`            | `memory_agent`    |
+| `"Fetching YouTube transcript…"` | `youtube_agent`   |
+| `"Saving to library…"`           | `save_transcript` |
+| `"Generating audio…"`            | `generate_tts`    |
 
 The stream **always ends with `{"type":"done"}`** even on error. Clients should treat the `done` frame as the definitive end signal.
 
@@ -125,12 +125,12 @@ The stream **always ends with `{"type":"done"}`** even on error. Clients should 
 
 ### Chat / Conversation endpoints — all JWT-protected
 
-| Method   | Path                                              | Limit  | Description                                         |
-| -------- | ------------------------------------------------- | ------ | --------------------------------------------------- |
-| `GET`    | `/api/v1/chat/conversations`                      | 60/min | List all conversations, newest first                |
-| `GET`    | `/api/v1/chat/conversations/{id}/messages`        | 60/min | Chronological messages in a conversation            |
-| `DELETE` | `/api/v1/chat/conversations/{id}`                 | 30/min | Delete conversation + all messages (CASCADE). 204   |
-| `PATCH`  | `/api/v1/chat/conversations/{id}`                 | 30/min | Rename conversation title                           |
+| Method   | Path                                       | Limit  | Description                                       |
+| -------- | ------------------------------------------ | ------ | ------------------------------------------------- |
+| `GET`    | `/api/v1/chat/conversations`               | 60/min | List all conversations, newest first              |
+| `GET`    | `/api/v1/chat/conversations/{id}/messages` | 60/min | Chronological messages in a conversation          |
+| `DELETE` | `/api/v1/chat/conversations/{id}`          | 30/min | Delete conversation + all messages (CASCADE). 204 |
+| `PATCH`  | `/api/v1/chat/conversations/{id}`          | 30/min | Rename conversation title                         |
 
 `conversation_id` is validated as UUID by FastAPI — malformed IDs return 422 before reaching the DB. All endpoints return 404 when the resource does not exist or is not owned by the authenticated user.
 
@@ -150,11 +150,11 @@ The stream **always ends with `{"type":"done"}`** even on error. Clients should 
 
 ### YouTube transcript endpoints — all JWT-protected
 
-| Method   | Path                    | Limit  | Description                                          |
-| -------- | ----------------------- | ------ | ---------------------------------------------------- |
-| `GET`    | `/api/v1/youtube`       | 60/min | List saved transcripts, newest first (paginated)     |
-| `GET`    | `/api/v1/youtube/{id}`  | 60/min | Full transcript detail                               |
-| `DELETE` | `/api/v1/youtube/{id}`  | 30/min | 204 + deletes cross-indexed memory entry             |
+| Method   | Path                   | Limit  | Description                                      |
+| -------- | ---------------------- | ------ | ------------------------------------------------ |
+| `GET`    | `/api/v1/youtube`      | 60/min | List saved transcripts, newest first (paginated) |
+| `GET`    | `/api/v1/youtube/{id}` | 60/min | Full transcript detail                           |
+| `DELETE` | `/api/v1/youtube/{id}` | 30/min | 204 + deletes cross-indexed memory entry         |
 
 Query params on `GET /api/v1/youtube`: `limit` (1–200, default 50), `offset` (default 0).
 
@@ -239,6 +239,7 @@ START → supervisor ──(transfer_to_memory_agent)──► memory_agent    �
 ### Anti-leak mechanism (pass1_buffer)
 
 The supervisor calls the LLM twice in tool-delegation turns:
+
 - **Pass 1** (tool selection): the model streams text while deciding which tool to call. These tokens must NOT be sent to the client.
 - **Pass 2** (actual response): the model streams the real reply after the sub-agent result is injected.
 
