@@ -88,11 +88,7 @@ async def generate_tts_node(state: AxonState) -> dict:
         f"Would you like me to save this to your audio library?"
     )
 
-    logger.info(
-        "[generate_tts_node] audio ready filename=%s user=%s",
-        filename,
-        user_id,
-    )
+    logger.info("[generate_tts_node] audio ready filename=%s", filename)
 
     messages = []
     if tool_call_id:

@@ -18,6 +18,7 @@ from uuid import uuid4
 import httpx
 
 from app.core.config import settings
+from app.core.privacy import mask_pii
 from app.db.supabase import get_supabase_client
 
 logger = logging.getLogger(__name__)
@@ -53,10 +54,13 @@ async def generate_tts(text: str, user_id: str) -> tuple[bytes, str]:
     if not text.strip():
         raise RuntimeError("Cannot generate TTS for empty text.")
 
+    # Mask PII before forwarding text to the external TTS provider.
+    masked_text = await mask_pii(text)
+
     # OpenRouter /audio/speech endpoint — returns raw MP3 bytes (not JSON).
     payload = {
         "model": settings.tts_model,
-        "input": text,
+        "input": masked_text,
         "voice": settings.tts_voice,
         "response_format": "mp3",
     }
@@ -65,22 +69,23 @@ async def generate_tts(text: str, user_id: str) -> tuple[bytes, str]:
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            f"{settings.openrouter_base_url}/audio/speech",
-            json=payload,
-            headers=headers,
-        )
-
-    if response.status_code != 200:
+    tts_url = f"{settings.openrouter_base_url}/audio/speech"
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(tts_url, json=payload, headers=headers)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
         logger.error(
-            "[generate_tts] OpenRouter returned %d: %s",
-            response.status_code,
-            response.text[:500],
+            "[generate_tts] OpenRouter returned %d url=%s",
+            exc.response.status_code,
+            tts_url,
         )
         raise RuntimeError(
-            f"TTS API request failed with status {response.status_code}."
-        )
+            f"TTS API request failed with status {exc.response.status_code}."
+        ) from exc
+    except httpx.RequestError as exc:
+        logger.error("[generate_tts] request error url=%s: %s", tts_url, exc)
+        raise RuntimeError("TTS API request failed due to a network error.") from exc
 
     audio_bytes = response.content
 

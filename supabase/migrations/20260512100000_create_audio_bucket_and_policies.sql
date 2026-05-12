@@ -17,7 +17,7 @@ CREATE POLICY "audio_insert_own"
   TO authenticated
   WITH CHECK (
     bucket_id = 'audio'
-    AND (storage.foldername(name))[1] = (auth.uid())::text
+    AND (storage.foldername(name))[1] = (select auth.uid())::text
   );
 
 -- Allow authenticated users to read their own files
@@ -26,7 +26,7 @@ CREATE POLICY "audio_select_own"
   TO authenticated
   USING (
     bucket_id = 'audio'
-    AND (storage.foldername(name))[1] = (auth.uid())::text
+    AND (storage.foldername(name))[1] = (select auth.uid())::text
   );
 
 -- Allow authenticated users to delete their own files (Phase 10D)
@@ -35,5 +35,5 @@ CREATE POLICY "audio_delete_own"
   TO authenticated
   USING (
     bucket_id = 'audio'
-    AND (storage.foldername(name))[1] = (auth.uid())::text
+    AND (storage.foldername(name))[1] = (select auth.uid())::text
   );
