@@ -35,6 +35,7 @@ from app.agents.subagents.youtube_agent import (
     youtube_agent_node,
 )
 from app.agents.supervisor import HANDOFF_TOOL_NAME, supervisor_node
+from app.features.audio.tool import GENERATE_TTS_TOOL_NAME, generate_tts_node
 from app.features.youtube.tool import SAVE_TRANSCRIPT_TOOL_NAME, save_transcript_node
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,8 @@ def _should_continue(state: AxonState) -> str:
                 return "youtube_agent"
             if tc["name"] == SAVE_TRANSCRIPT_TOOL_NAME:
                 return "save_transcript"
+            if tc["name"] == GENERATE_TTS_TOOL_NAME:
+                return "generate_tts"
     return END
 
 
@@ -82,6 +85,7 @@ def _build_graph() -> CompiledStateGraph:
     builder.add_node("memory_agent", memory_agent_node)
     builder.add_node("youtube_agent", youtube_agent_node)
     builder.add_node("save_transcript", save_transcript_node)
+    builder.add_node("generate_tts", generate_tts_node)
     builder.add_edge(START, "supervisor")
     builder.add_conditional_edges(
         "supervisor",
@@ -90,6 +94,7 @@ def _build_graph() -> CompiledStateGraph:
             "memory_agent": "memory_agent",
             "youtube_agent": "youtube_agent",
             "save_transcript": "save_transcript",
+            "generate_tts": "generate_tts",
             END: END,
         },
     )
@@ -97,6 +102,7 @@ def _build_graph() -> CompiledStateGraph:
     builder.add_edge("memory_agent", "supervisor")
     builder.add_edge("youtube_agent", "supervisor")
     builder.add_edge("save_transcript", "supervisor")
+    builder.add_edge("generate_tts", "supervisor")
     return builder.compile()
 
 

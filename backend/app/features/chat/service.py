@@ -149,6 +149,13 @@ async def stream_chat(
                 yield _format(SSEEvent(type="tool_use", content="Saving to library…"))
                 continue
 
+            # TTS node starting — emit tool_use status.
+            if kind == "on_chain_start" and node == "generate_tts":
+                memory_agent_invoked = True  # blocks pass-1 flush
+                pass1_buffer.clear()
+                yield _format(SSEEvent(type="tool_use", content="Generating audio…"))
+                continue
+
             if kind != "on_chat_model_stream":
                 continue
             if node != "supervisor":

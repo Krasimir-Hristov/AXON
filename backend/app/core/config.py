@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # Uses a fast, large-context model via OpenRouter; not the user's selected chat model.
     youtube_summary_model: str = "google/gemini-2.5-flash"
 
+    # TTS (Phase 10C) — text-to-speech via OpenRouter's /audio/speech endpoint.
+    # Uses openrouter_api_key — no separate OpenAI key needed.
+    tts_model: str = "openai/gpt-4o-mini-tts-2025-12-15"
+    tts_voice: str = "alloy"  # alloy / echo / fable / onyx / nova / shimmer
+    audio_bucket: str = "audio"  # Supabase Storage bucket name
+
     # Rate limiting — optional Redis backend for multi-worker deployments.
     # Leave unset (default None) to use in-memory storage (single process).
     # Example: redis://localhost:6379/0

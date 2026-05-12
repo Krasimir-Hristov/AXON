@@ -20,6 +20,7 @@ Two model singletons are kept at module level:
 """
 
 import logging
+import re
 import uuid
 
 from fastapi import HTTPException, status
@@ -37,6 +38,7 @@ from langchain_core.tools import tool
 from app.agents.state import AxonState
 from app.agents.subagents.youtube_fetcher import extract_video_id
 from app.core.config import settings
+from app.features.audio.tool import GENERATE_TTS_TOOL_NAME
 from app.features.youtube.tool import SAVE_TRANSCRIPT_TOOL_NAME
 
 logger = logging.getLogger(__name__)
@@ -135,6 +137,28 @@ Do NOT call `save_video_transcript` if:
 - The conversation history contains no prior assistant YouTube summary.
 - The user has not explicitly confirmed they want to save.
 - The user says "no", "skip", "не", or similar.
+
+## TTS / Audio generation tool
+
+Call `generate_tts(text=<text_to_synthesize>)` when the user asks you to:
+- Generate audio, read aloud, or create an audio version of any text.
+- Convert the video summary (or any other text) to speech.
+- Any phrasing such as "generate audio", "read this", "make an mp3",
+  "прочети", "генерирай аудио".
+
+Pass the text to synthesize as the `text` argument. If the user says
+"generate audio of the summary", use the summary text from the most recent
+YouTube summary in the conversation. If no specific text is mentioned, ask
+the user what text they want converted.
+
+CRITICAL output rule: When calling `generate_tts`, your response MUST consist
+ONLY of the tool call — zero text before or after it.
+
+After `generate_tts` returns, present the markdown link from the ToolMessage
+content verbatim and ask: "Would you like me to save this to your audio library?"
+
+Do NOT call `generate_tts` for general questions about audio or TTS — only
+when the user explicitly requests audio generation.
 """
 
 
@@ -174,6 +198,19 @@ def save_video_transcript() -> str:  # noqa: D401
     return "Save transcript activated."  # pragma: no cover
 
 
+@tool(GENERATE_TTS_TOOL_NAME)
+def generate_tts(text: str) -> str:  # noqa: D401
+    """Convert the given text to speech and upload the result as an mp3.
+
+    Args:
+        text: The text to synthesize. Will be truncated to 4096 chars if longer.
+
+    Call this when the user asks to generate audio / read aloud any text.
+    """
+    # The tool body is never executed — orchestrator routes to generate_tts_node.
+    return "TTS generation activated."  # pragma: no cover
+
+
 # ---------------------------------------------------------------------------
 # Model cache (keyed by model_id x has_tools to avoid rebuilding per request)
 # ---------------------------------------------------------------------------
@@ -197,6 +234,7 @@ def _get_model(model_id: str, with_tools: bool) -> Runnable:
                     transfer_to_memory_agent,
                     transfer_to_youtube_agent,
                     save_video_transcript,
+                    generate_tts,
                 ]
             )
             if with_tools
@@ -323,4 +361,37 @@ async def supervisor_node(state: AxonState, config: RunnableConfig) -> dict:
         len(str(response.content)),
         bool(getattr(response, "tool_calls", None)),
     )
+
+    # Post-process: some models (e.g. DeepSeek) emit tool calls as text content
+    # instead of structured tool_calls.  Detect these and convert to proper
+    # tool_call AIMessages so LangGraph routes correctly and no text leaks to
+    # the frontend.
+    content_str = response.content if isinstance(response.content, str) else ""
+    if not getattr(response, "tool_calls", None) and content_str:
+        match = re.search(
+            r'generate_tts\(text=["\'](.+?)["\'](\s*,.*?)?\)',
+            content_str,
+            re.DOTALL,
+        )
+        if match:
+            extracted_text = match.group(1)
+            logger.info(
+                "[supervisor] text-format generate_tts detected — converting to structured tool_call"
+            )
+            return {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": GENERATE_TTS_TOOL_NAME,
+                                "args": {"text": extracted_text},
+                                "id": str(uuid.uuid4()),
+                                "type": "tool_call",
+                            }
+                        ],
+                    )
+                ]
+            }
+
     return {"messages": [response]}

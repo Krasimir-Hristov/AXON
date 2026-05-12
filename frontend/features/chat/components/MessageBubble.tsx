@@ -60,16 +60,28 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
                       {children}
                     </code>
                   ),
-                a: ({ href, children }) => (
-                  <a
-                    href={href}
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    className='text-[#c0c1ff] underline underline-offset-2 hover:text-white'
-                  >
-                    {children}
-                  </a>
-                ),
+                a: ({ href, children }) =>
+                  href?.includes('.mp3') ? (
+                    <span className='mt-2 block'>
+                      <audio
+                        controls
+                        src={href}
+                        className='w-full max-w-sm rounded'
+                        aria-label={
+                          typeof children === 'string' ? children : 'Audio'
+                        }
+                      />
+                    </span>
+                  ) : (
+                    <a
+                      href={href}
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='text-[#c0c1ff] underline underline-offset-2 hover:text-white'
+                    >
+                      {children}
+                    </a>
+                  ),
                 p: ({ children }) => (
                   <p className='not-first:mt-2'>{children}</p>
                 ),
