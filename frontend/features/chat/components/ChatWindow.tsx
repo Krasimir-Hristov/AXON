@@ -10,6 +10,7 @@ import {
   Database,
   Play,
   Bookmark,
+  Volume2,
   Menu,
   X,
 } from 'lucide-react';
@@ -235,6 +236,8 @@ const ChatWindow = () => {
                       <Play className='h-3.5 w-3.5 shrink-0 animate-pulse text-red-400' />
                     ) : toolStatus.startsWith('Saving') ? (
                       <Bookmark className='h-3.5 w-3.5 shrink-0 animate-pulse text-[#c0c1ff]' />
+                    ) : toolStatus.startsWith('Generating audio') ? (
+                      <Volume2 className='h-3.5 w-3.5 shrink-0 animate-pulse text-purple-400' />
                     ) : (
                       <Database className='h-3.5 w-3.5 shrink-0 animate-pulse' />
                     )}
