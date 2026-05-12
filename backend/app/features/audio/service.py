@@ -89,6 +89,19 @@ async def generate_tts(text: str, user_id: str) -> tuple[bytes, str]:
 
     audio_bytes = response.content
 
+    # Validate the response is non-empty and looks like an MP3 before uploading.
+    content_type = response.headers.get("content-type", "")
+    mp3_magic = audio_bytes[:3] if len(audio_bytes) >= 3 else b""
+    is_mp3_magic = mp3_magic == b"ID3" or (len(audio_bytes) >= 2 and audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0)
+    if not audio_bytes or (not content_type.startswith("audio/") and not is_mp3_magic):
+        logger.error(
+            "[generate_tts] unexpected TTS response status=%d content-type=%s bytes=%d",
+            response.status_code,
+            content_type,
+            len(audio_bytes),
+        )
+        raise RuntimeError("TTS API returned an invalid or empty audio response.")
+
     file_uuid = uuid4()
     filename = f"{user_id}/{file_uuid}.mp3"
     logger.info(
@@ -113,6 +126,9 @@ async def upload_audio(audio_bytes: bytes, filename: str) -> str:
     client = await get_supabase_client()
     bucket = settings.audio_bucket
 
+    # Use only the basename (UUID part) in logs — never the full path (contains user_id).
+    safe_log_name = filename.split("/")[-1] if "/" in filename else filename
+
     try:
         await client.storage.from_(bucket).upload(
             path=filename,
@@ -120,7 +136,7 @@ async def upload_audio(audio_bytes: bytes, filename: str) -> str:
             file_options={"content-type": "audio/mpeg"},
         )
     except Exception as exc:
-        logger.exception("[upload_audio] Storage upload failed filename=%s", filename)
+        logger.exception("[upload_audio] Storage upload failed uuid=%s", safe_log_name)
         raise RuntimeError("Failed to upload audio to storage.") from exc
 
     try:
@@ -130,9 +146,9 @@ async def upload_audio(audio_bytes: bytes, filename: str) -> str:
         signed_url: str = result["signedURL"]
     except Exception as exc:
         logger.exception(
-            "[upload_audio] Failed to create signed URL filename=%s", filename
+            "[upload_audio] Failed to create signed URL uuid=%s", safe_log_name
         )
         raise RuntimeError("Audio uploaded but could not generate a signed URL.") from exc
 
-    logger.info("[upload_audio] signed URL created filename=%s", filename)
+    logger.info("[upload_audio] signed URL created uuid=%s", safe_log_name)
     return signed_url
