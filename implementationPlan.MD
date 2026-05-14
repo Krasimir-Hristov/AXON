@@ -492,7 +492,7 @@ User: "yes"
 
 ### 10D-1 — Database (`supabase/migrations/`)
 
-- [ ] New migration: create `audio_entries` table:
+- [x] New migration: create `audio_entries` table:
   ```sql
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
