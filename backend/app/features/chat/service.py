@@ -10,10 +10,12 @@ from app.agents.orchestrator import graph
 from app.agents.state import AxonState
 from app.features.auth.schemas import UserSchema
 from app.features.chat.conversation_service import (
+    get_conversation_pending_audio,
     get_conversation_youtube_context,
     get_or_create_conversation,
     load_history,
     save_message,
+    update_conversation_pending_audio,
     update_conversation_youtube_context,
 )
 from app.features.chat.schemas import ChatRequest, SSEEvent
@@ -63,9 +65,12 @@ async def stream_chat(
         yield _format(SSEEvent(type="done"))
         return
 
-    # ── 2. Load history + persisted youtube_context ─────────────────────────
+    # ── 2. Load history + persisted youtube_context + pending_audio ──────────
     history = await load_history(conversation_id, user.id, limit=40)
     saved_youtube_context = await get_conversation_youtube_context(
+        conversation_id, user.id
+    )
+    saved_pending_audio = await get_conversation_pending_audio(
         conversation_id, user.id
     )
 
@@ -89,6 +94,7 @@ async def stream_chat(
         "memory_threshold": request.memory_threshold,
         "memory_limit": request.memory_limit,
         "youtube_context": saved_youtube_context,
+        "pending_audio": saved_pending_audio,
     }
 
     collected: list[str] = []
@@ -107,6 +113,8 @@ async def stream_chat(
         memory_agent_invoked = False
         pass1_buffer: list[str] = []
         pending_youtube_context: str | None = None
+        pending_audio_changed = False
+        pending_audio_update: dict | None = None
 
         async for event in graph.astream_events(initial_state, version="v2"):
             kind = event.get("event")
@@ -119,6 +127,14 @@ async def stream_chat(
                 )
                 if ctx:
                     pending_youtube_context = ctx
+                continue
+
+            # Capture pending_audio when generate_tts or save_audio finishes.
+            if kind == "on_chain_end" and node in ("generate_tts", "save_audio"):
+                output = (event.get("data") or {}).get("output") or {}
+                if "pending_audio" in output:
+                    pending_audio_changed = True
+                    pending_audio_update = output["pending_audio"]
                 continue
 
             # Track supervisor invocations so we know which pass we're on.
@@ -209,5 +225,9 @@ async def stream_chat(
         if pending_youtube_context:
             await update_conversation_youtube_context(
                 conversation_id, user.id, pending_youtube_context
+            )
+        if pending_audio_changed:
+            await update_conversation_pending_audio(
+                conversation_id, user.id, pending_audio_update
             )
         yield _format(SSEEvent(type="done"))

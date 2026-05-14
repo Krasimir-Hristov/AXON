@@ -1,6 +1,6 @@
 """AxonState — single source of truth for graph state shared across all nodes."""
 
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
@@ -23,10 +23,10 @@ class AxonState(TypedDict):
             Holds {video_id, youtube_url, title, channel, duration_s, summary,
             key_points} for the current turn. Empty string when no video was
             processed. Persists in conversation state for cross-turn save flow.
-        pending_audio: JSON payload string set by generate_tts_node.
-            Holds {filename, signed_url, title, text_preview} after TTS is
-            generated. Empty string when no audio is pending. Persists for
-            cross-turn save confirmation (Phase 10D).
+        pending_audio: JSON payload dict set by generate_tts_node.
+            Holds {filename, signed_url, text_preview} after TTS is
+            generated. None when no audio is pending. Persists for
+            cross-turn save confirmation (Phase 10D). Stored as JSONB.
     """
 
     messages: Annotated[list[BaseMessage], add_messages]
@@ -36,4 +36,4 @@ class AxonState(TypedDict):
     memory_threshold: float
     memory_limit: int
     youtube_context: str
-    pending_audio: str
+    pending_audio: dict[str, Any] | None

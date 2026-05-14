@@ -189,6 +189,58 @@ async def update_conversation_youtube_context(
         )
 
 
+async def get_conversation_pending_audio(
+    conversation_id: str,
+    user_id: str,
+) -> dict[str, Any] | None:
+    """Return the persisted pending_audio for a conversation, or None if unset."""
+    client = await get_supabase_client()
+    try:
+        result = (
+            await client.table("conversations")
+            .select("pending_audio")
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception(
+            "get_conversation_pending_audio: query failed conversation_id=%s",
+            conversation_id,
+        )
+        return None
+    rows = cast(list[dict[str, Any]], result.data or [])
+    val = rows[0].get("pending_audio") if rows else None
+    return cast(dict[str, Any] | None, val)
+
+
+async def update_conversation_pending_audio(
+    conversation_id: str,
+    user_id: str,
+    pending_audio: dict[str, Any] | None,
+) -> None:
+    """Persist the pending_audio payload on the conversation row.
+
+    Non-fatal: a failure is logged but does not raise so the main stream
+    continues uninterrupted.
+    """
+    client = await get_supabase_client()
+    try:
+        await (
+            client.table("conversations")
+            .update({"pending_audio": pending_audio})
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception(
+            "update_conversation_pending_audio: update failed conversation_id=%s",
+            conversation_id,
+        )
+
+
 async def list_conversations(user_id: str, limit: int = 50) -> list[ConversationOut]:
     """Return conversations for a user, ordered by most recent activity first."""
     client = await get_supabase_client()

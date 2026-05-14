@@ -4,6 +4,8 @@
     START → supervisor → (transfer_to_memory_agent called)  → memory_agent      → supervisor → END
                        → (transfer_to_youtube_agent called) → youtube_agent     → supervisor → END
                        → (save_video_transcript called)     → save_transcript   → supervisor → END
+                       → (generate_tts called)              → generate_tts      → supervisor → END
+                       → (save_audio_entry called)          → save_audio        → supervisor → END
                        → (responds directly)                                   → END
 
 - **supervisor**:        Entry point for every turn. Binds all handoff tools on the
@@ -35,7 +37,7 @@ from app.agents.subagents.youtube_agent import (
     youtube_agent_node,
 )
 from app.agents.supervisor import HANDOFF_TOOL_NAME, supervisor_node
-from app.features.audio.tool import GENERATE_TTS_TOOL_NAME, generate_tts_node
+from app.features.audio.tool import GENERATE_TTS_TOOL_NAME, generate_tts_node, SAVE_AUDIO_TOOL_NAME, save_audio_entry_node
 from app.features.youtube.tool import SAVE_TRANSCRIPT_TOOL_NAME, save_transcript_node
 
 logger = logging.getLogger(__name__)
@@ -75,6 +77,8 @@ def _should_continue(state: AxonState) -> str:
                 return "save_transcript"
             if tc["name"] == GENERATE_TTS_TOOL_NAME:
                 return "generate_tts"
+            if tc["name"] == SAVE_AUDIO_TOOL_NAME:
+                return "save_audio"
     return END
 
 
@@ -86,6 +90,7 @@ def _build_graph() -> CompiledStateGraph:
     builder.add_node("youtube_agent", youtube_agent_node)
     builder.add_node("save_transcript", save_transcript_node)
     builder.add_node("generate_tts", generate_tts_node)
+    builder.add_node("save_audio", save_audio_entry_node)
     builder.add_edge(START, "supervisor")
     builder.add_conditional_edges(
         "supervisor",
@@ -95,6 +100,7 @@ def _build_graph() -> CompiledStateGraph:
             "youtube_agent": "youtube_agent",
             "save_transcript": "save_transcript",
             "generate_tts": "generate_tts",
+            "save_audio": "save_audio",
             END: END,
         },
     )
@@ -103,6 +109,7 @@ def _build_graph() -> CompiledStateGraph:
     builder.add_edge("youtube_agent", "supervisor")
     builder.add_edge("save_transcript", "supervisor")
     builder.add_edge("generate_tts", "supervisor")
+    builder.add_edge("save_audio", "supervisor")
     return builder.compile()
 
 

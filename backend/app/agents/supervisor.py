@@ -38,7 +38,7 @@ from langchain_core.tools import tool
 from app.agents.state import AxonState
 from app.agents.subagents.youtube_fetcher import extract_video_id
 from app.core.config import settings
-from app.features.audio.tool import GENERATE_TTS_TOOL_NAME
+from app.features.audio.tool import GENERATE_TTS_TOOL_NAME, SAVE_AUDIO_TOOL_NAME
 from app.features.youtube.tool import SAVE_TRANSCRIPT_TOOL_NAME
 
 logger = logging.getLogger(__name__)
@@ -159,6 +159,24 @@ content verbatim and ask: "Would you like me to save this to your audio library?
 
 Do NOT call `generate_tts` for general questions about audio or TTS — only
 when the user explicitly requests audio generation.
+
+## Save audio entry — MANDATORY usage rules
+
+After presenting a generated audio link, you MUST ask the user:
+"Would you like me to save this to your audio library?"
+
+When the user confirms they want to save (any phrasing: "yes", "save it",
+"запази", "да", "go ahead", "save the audio") AND the conversation history
+contains a prior generate_tts ToolMessage:
+- Call `save_audio_entry(title=<descriptive_title>)` where `title` is a short
+  descriptive label (e.g. the video title if generated from a YouTube summary,
+  or the first few words of the text).
+- Your response MUST consist ONLY of the tool call — zero text before or after it.
+
+Do NOT call `save_audio_entry` if:
+- No audio was recently generated (no generate_tts ToolMessage in history).
+- The user has not explicitly confirmed they want to save.
+- The user says "no", "skip", "не", or similar.
 """
 
 
@@ -211,6 +229,21 @@ def generate_tts(text: str) -> str:  # noqa: D401
     return "TTS generation activated."  # pragma: no cover
 
 
+@tool(SAVE_AUDIO_TOOL_NAME)
+def save_audio_entry(title: str) -> str:  # noqa: D401
+    """Save the most recently generated audio file to the audio library.
+
+    Args:
+        title: A short descriptive label for the saved audio entry.
+
+    Call this only after the user explicitly confirms they want to save the
+    audio that was just generated (i.e. a generate_tts ToolMessage exists
+    in the current conversation history).
+    """
+    # The tool body is never executed — orchestrator routes to save_audio_entry_node.
+    return "Save audio activated."  # pragma: no cover
+
+
 # ---------------------------------------------------------------------------
 # Model cache (keyed by model_id x has_tools to avoid rebuilding per request)
 # ---------------------------------------------------------------------------
@@ -235,6 +268,7 @@ def _get_model(model_id: str, with_tools: bool) -> Runnable:
                     transfer_to_youtube_agent,
                     save_video_transcript,
                     generate_tts,
+                    save_audio_entry,
                 ]
             )
             if with_tools
