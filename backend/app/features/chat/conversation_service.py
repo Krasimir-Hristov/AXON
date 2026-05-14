@@ -192,8 +192,8 @@ async def update_conversation_youtube_context(
 async def get_conversation_pending_audio(
     conversation_id: str,
     user_id: str,
-) -> str:
-    """Return the persisted pending_audio for a conversation, or '' if none."""
+) -> dict[str, Any] | None:
+    """Return the persisted pending_audio for a conversation, or None if unset."""
     client = await get_supabase_client()
     try:
         result = (
@@ -209,15 +209,16 @@ async def get_conversation_pending_audio(
             "get_conversation_pending_audio: query failed conversation_id=%s",
             conversation_id,
         )
-        return ""
+        return None
     rows = cast(list[dict[str, Any]], result.data or [])
-    return str(rows[0].get("pending_audio") or "") if rows else ""
+    val = rows[0].get("pending_audio") if rows else None
+    return cast(dict[str, Any] | None, val)
 
 
 async def update_conversation_pending_audio(
     conversation_id: str,
     user_id: str,
-    pending_audio: str,
+    pending_audio: dict[str, Any] | None,
 ) -> None:
     """Persist the pending_audio payload on the conversation row.
 

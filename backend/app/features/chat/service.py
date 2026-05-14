@@ -113,7 +113,8 @@ async def stream_chat(
         memory_agent_invoked = False
         pass1_buffer: list[str] = []
         pending_youtube_context: str | None = None
-        pending_audio_update: str | None = None
+        pending_audio_changed = False
+        pending_audio_update: dict | None = None
 
         async for event in graph.astream_events(initial_state, version="v2"):
             kind = event.get("event")
@@ -130,11 +131,10 @@ async def stream_chat(
 
             # Capture pending_audio when generate_tts or save_audio finishes.
             if kind == "on_chain_end" and node in ("generate_tts", "save_audio"):
-                audio_val = ((event.get("data") or {}).get("output") or {}).get(
-                    "pending_audio"
-                )
-                if audio_val is not None:
-                    pending_audio_update = audio_val
+                output = (event.get("data") or {}).get("output") or {}
+                if "pending_audio" in output:
+                    pending_audio_changed = True
+                    pending_audio_update = output["pending_audio"]
                 continue
 
             # Track supervisor invocations so we know which pass we're on.
@@ -226,7 +226,7 @@ async def stream_chat(
             await update_conversation_youtube_context(
                 conversation_id, user.id, pending_youtube_context
             )
-        if pending_audio_update is not None:
+        if pending_audio_changed:
             await update_conversation_pending_audio(
                 conversation_id, user.id, pending_audio_update
             )

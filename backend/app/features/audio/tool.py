@@ -13,7 +13,6 @@ Neither node is called via LangChain tool execution — both are invoked directl
 by the orchestrator graph (same pattern as save_transcript_node).
 """
 
-import json
 import logging
 
 from langchain_core.messages import AIMessage, ToolMessage
@@ -78,12 +77,11 @@ async def generate_tts_node(state: AxonState) -> dict:
         )
 
     # -- Build pending_audio payload for Phase 10D save ----------------------
-    pending = {
+    pending: dict[str, str] = {
         "filename": filename,
         "signed_url": signed_url,
         "text_preview": text[:100],
     }
-    pending_audio_json = json.dumps(pending)
 
     result_msg = (
         f"Audio generated successfully.\n\n"
@@ -97,7 +95,7 @@ async def generate_tts_node(state: AxonState) -> dict:
     if tool_call_id:
         messages.append(ToolMessage(content=result_msg, tool_call_id=tool_call_id))
 
-    return {"messages": messages, "pending_audio": pending_audio_json}
+    return {"messages": messages, "pending_audio": pending}
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +131,7 @@ async def save_audio_entry_node(state: AxonState) -> dict:
         return {"messages": messages}
 
     # -- Validate pending_audio ---------------------------------------------
-    pending_audio = state.get("pending_audio", "")
+    pending_audio: dict | None = state.get("pending_audio")
     if not pending_audio:
         logger.warning("[save_audio_entry_node] pending_audio is empty")
         return _error(
@@ -141,19 +139,13 @@ async def save_audio_entry_node(state: AxonState) -> dict:
             "Please generate audio first before asking me to save it."
         )
 
-    try:
-        pending = json.loads(pending_audio)
-    except json.JSONDecodeError:
-        logger.exception("[save_audio_entry_node] pending_audio is not valid JSON")
-        return _error("Failed to parse audio data — please try generating audio again.")
-
-    filename: str = pending.get("filename", "")
+    filename: str = pending_audio.get("filename", "")
     if not filename:
         return _error("Audio data is missing the filename — please try again.")
 
     # Fall back to text_preview if no title was provided.
     if not title:
-        title = pending.get("text_preview", "Audio")[:80]
+        title = pending_audio.get("text_preview", "Audio")[:80]
 
     user_id: str = state["user_id"]
 
@@ -180,4 +172,4 @@ async def save_audio_entry_node(state: AxonState) -> dict:
         messages.append(ToolMessage(content=result_msg, tool_call_id=tool_call_id))
 
     # Clear pending_audio from state after successful save.
-    return {"messages": messages, "pending_audio": ""}
+    return {"messages": messages, "pending_audio": None}
