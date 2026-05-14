@@ -1,6 +1,6 @@
 import AudioLibrary from '@/features/audio/components/AudioLibrary';
 
-export default function AudioPage() {
+const AudioPage = () => {
   return (
     <div className='min-h-screen bg-[#13131b] px-4 py-8'>
       <div className='mx-auto max-w-5xl'>
@@ -11,4 +11,6 @@ export default function AudioPage() {
       </div>
     </div>
   );
-}
+};
+
+export default AudioPage;

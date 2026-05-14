@@ -21,6 +21,7 @@ delete_audio_entry(id, user_id) -> bool
     Delete an audio entry from the DB and its file from Storage.
 """
 
+import asyncio
 import logging
 from uuid import UUID, uuid4
 from typing import Any
@@ -210,9 +211,9 @@ async def save_audio_entry(
 
     try:
         response = await client.table("audio_entries").insert(row_data).execute()
-    except Exception:
+    except Exception as exc:
         logger.exception("[save_audio_entry] INSERT failed user=%s", user_id[:8])
-        raise RuntimeError("Failed to save audio entry to database.")
+        raise RuntimeError("Failed to save audio entry to database.") from exc
 
     if not response.data:
         raise RuntimeError("INSERT returned no data.")
@@ -226,9 +227,9 @@ async def save_audio_entry(
             filename, _SIGNED_URL_TTL
         )
         signed_url: str = result["signedURL"]
-    except Exception:
+    except Exception as exc:
         logger.exception("[save_audio_entry] signed URL failed uuid=%s", safe_log_name)
-        raise RuntimeError("Entry saved but could not generate a signed URL.")
+        raise RuntimeError("Entry saved but could not generate a signed URL.") from exc
 
     logger.info("[save_audio_entry] saved uuid=%s", safe_log_name)
     return _row_to_entry(row, signed_url)
@@ -253,19 +254,27 @@ async def list_audio_entries(user_id: str) -> list[AudioEntryOut]:
         logger.exception("[list_audio_entries] SELECT failed user=%s", user_id[:8])
         return []
 
-    entries: list[AudioEntryOut] = []
-    for row in response.data or []:
+    rows = response.data or []
+    if not rows:
+        return []
+
+    # Sign all URLs concurrently instead of sequentially.
+    async def _sign_row(row: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
         try:
             result = await client.storage.from_(settings.audio_bucket).create_signed_url(
                 row["filename"], _SIGNED_URL_TTL
             )
-            url: str = result["signedURL"]
+            return row, result["signedURL"]
         except Exception:
             safe = row["filename"].split("/")[-1] if "/" in row["filename"] else row["filename"]
             logger.warning("[list_audio_entries] signed URL failed uuid=%s — skipping", safe)
-            continue
-        entries.append(_row_to_entry(row, url))
+            return None
 
+    results = await asyncio.gather(*(_sign_row(row) for row in rows))
+    entries: list[AudioEntryOut] = []
+    for item in results:
+        if item is not None:
+            entries.append(_row_to_entry(item[0], item[1]))
     return entries
 
 
@@ -295,21 +304,26 @@ async def delete_audio_entry(entry_id: UUID, user_id: str) -> bool:
     filename: str = fetch.data[0]["filename"]
     safe_log_name = filename.split("/")[-1] if "/" in filename else filename
 
-    # Delete from DB first.
+    # Delete from Storage first — if this fails the DB row is preserved (consistent state).
+    try:
+        await client.storage.from_(settings.audio_bucket).remove([filename])
+    except Exception:
+        logger.warning(
+            "[delete_audio_entry] Storage remove failed uuid=%s — aborting delete",
+            safe_log_name,
+        )
+        return False
+
+    # Only remove the DB row after successful Storage deletion.
     try:
         await client.table("audio_entries").delete().eq("id", str(entry_id)).eq("user_id", user_id).execute()
     except Exception:
-        logger.exception("[delete_audio_entry] DELETE failed id=%s", entry_id)
-        return False
-
-    # Best-effort Storage deletion — log failure but do not fail the request.
-    try:
-        await client.storage.from_(settings.audio_bucket).remove([filename])
-        logger.info("[delete_audio_entry] deleted uuid=%s", safe_log_name)
-    except Exception:
-        logger.warning(
-            "[delete_audio_entry] Storage remove failed uuid=%s — DB row deleted",
+        logger.exception(
+            "[delete_audio_entry] DB DELETE failed after storage removal id=%s uuid=%s",
+            entry_id,
             safe_log_name,
         )
+        return False
 
+    logger.info("[delete_audio_entry] deleted uuid=%s", safe_log_name)
     return True

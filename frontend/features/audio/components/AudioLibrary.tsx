@@ -3,7 +3,7 @@
 import { useAudioEntries } from '@/features/audio/hooks/useAudio';
 import AudioCard from '@/features/audio/components/AudioCard';
 
-function SkeletonCard() {
+const SkeletonCard = () => {
   return (
     <div className='flex flex-col gap-3 rounded-lg border border-[#2a2a3d] bg-[#1a1a2e] p-4 animate-pulse'>
       <div className='h-4 w-3/4 rounded bg-[#2a2a3d]' />
@@ -13,7 +13,7 @@ function SkeletonCard() {
   );
 }
 
-export default function AudioLibrary() {
+const AudioLibrary = () => {
   const { data: entries, isLoading } = useAudioEntries();
 
   if (isLoading) {
@@ -44,4 +44,6 @@ export default function AudioLibrary() {
       ))}
     </div>
   );
-}
+};
+
+export default AudioLibrary;

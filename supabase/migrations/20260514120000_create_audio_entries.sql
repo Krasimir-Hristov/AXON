@@ -16,6 +16,10 @@ create table if not exists public.audio_entries (
 create index if not exists audio_entries_user_created_idx
     on public.audio_entries (user_id, created_at desc);
 
+-- Index for FK lookups on source_id (prevents full-table scans on video_transcripts delete cascade).
+create index if not exists audio_entries_source_id_idx
+    on public.audio_entries (source_id);
+
 -- Enable RLS.
 alter table public.audio_entries enable row level security;
 

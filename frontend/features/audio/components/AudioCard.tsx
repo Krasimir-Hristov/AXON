@@ -11,7 +11,7 @@ interface AudioCardProps {
   entry: AudioEntryOut;
 }
 
-export default function AudioCard({ entry }: AudioCardProps) {
+const AudioCard = ({ entry }: AudioCardProps) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { mutate: deleteEntry, isPending } = useDeleteAudio();
 
@@ -58,16 +58,21 @@ export default function AudioCard({ entry }: AudioCardProps) {
       </div>
 
       {/* Audio player */}
+      {/* TODO: Add WebVTT captions once transcript generation is implemented. */}
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio
         controls
         src={entry.signed_url}
         className='w-full rounded'
         preload='none'
+        aria-label={`Audio: ${entry.title}`}
       />
+      <p className='text-xs text-[#6b6b8a]/60 italic'>Captions unavailable</p>
 
       {/* Footer */}
       <p className='text-xs text-[#6b6b8a]'>{relativeTime}</p>
     </div>
   );
-}
+};
+
+export default AudioCard;
