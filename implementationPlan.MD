@@ -503,43 +503,40 @@ User: "yes"
   duration_s    integer,                -- estimated from text length
   created_at    timestamptz DEFAULT now()
   ```
-- [ ] RLS: `user_id = auth.uid()` on SELECT / INSERT / DELETE
-- [ ] Index on `(user_id, created_at DESC)`
+- [x] RLS: `user_id = auth.uid()` on SELECT / INSERT / DELETE
+- [x] Index on `(user_id, created_at DESC)`
 
 ### 10D-2 — Backend feature layer (`app/features/audio/`)
 
-- [ ] `__init__.py`
-- [ ] `schemas.py` — `AudioEntryOut(id, filename, title, source_type, source_id, duration_s, created_at, signed_url)`
-- [ ] `service.py` additions:
-  - `save_audio_entry(user_id, filename, title, source_type, source_id) -> AudioEntryOut`
-  - `list_audio_entries(user_id) -> list[AudioEntryOut]` — for each entry, generate fresh signed URL (1 week)
-  - `delete_audio_entry(id, user_id) -> bool` — DELETE from table + `storage.remove([filename])`
-- [ ] `router.py`:
-  - `GET  /api/v1/audio` — list saved audio (newest first); protected; rate limit 60/min
-  - `DELETE /api/v1/audio/{id}` — 204 + deletes from Storage; protected; rate limit 30/min
+- [x] `__init__.py`
+- [x] `schemas.py` — `AudioEntryOut(id, filename, title, source_type, source_id, duration_s, created_at, signed_url)`
+- [x] `service.py` additions:
+  - [x] `save_audio_entry(user_id, filename, title, source_type, source_id) -> AudioEntryOut`
+  - [x] `list_audio_entries(user_id) -> list[AudioEntryOut]` — for each entry, generate fresh signed URL (1 week)
+  - [x] `delete_audio_entry(id, user_id) -> bool` — DELETE from table + `storage.remove([filename])`
+- [x] `router.py`:
+  - [x] `GET  /api/v1/audio` — list saved audio (newest first); protected; rate limit 60/min
+  - [x] `DELETE /api/v1/audio/{id}` — 204 + deletes from Storage; protected; rate limit 30/min
 
 ### 10D-3 — Save audio tool (`app/features/audio/tool.py` addition)
 
-- [ ] `@tool async def save_audio_entry(title: str, state: AxonState) -> str`:
-  - Reads `state["pending_audio"]` — parse JSON
-  - Calls `audio_service.save_audio_entry(user_id, filename, title, ...)`
-  - Returns confirmation with title
-- [ ] Wire tool into supervisor's `bind_tools` list
-- [ ] Supervisor system prompt: when user confirms save of audio → call `save_audio_entry(title=<video_title_or_user_provided>)`
+- [x] `save_audio_entry_node` LangGraph node — reads `pending_audio`, calls service, returns ToolMessage
+- [x] `save_audio_entry` stub `@tool` bound to supervisor (`bind_tools`)
+- [x] Supervisor system prompt: when user confirms save of audio → call `save_audio_entry(title=<video_title_or_user_provided>)`
 
 ### 10D-4 — Mount router in `app/main.py`
 
-- [ ] Import and mount audio router
+- [x] Import and mount audio router
 
 ### 10D-5 — Frontend Audio Library (`features/audio/`)
 
-- [ ] `features/audio/types.ts` — `AudioEntryOut` interface
-- [ ] `features/audio/hooks/useAudio.ts` — `useAudioEntries()` (TanStack Query, stale 60s), `useDeleteAudio()` mutation
-- [ ] `features/audio/components/AudioCard.tsx` — shows title, date, duration estimate; HTML5 `<audio>` player with signed URL; delete button (inline confirm)
-- [ ] `features/audio/components/AudioLibrary.tsx` — grid/list of `AudioCard`s; loading skeleton; empty state
-- [ ] `app/(dashboard)/audio/page.tsx` — page route, guarded by auth
-- [ ] Nav link in `ChatWindow.tsx` header (`<Headphones />` icon → `/audio`)
-- [ ] `lib/api.ts` — `listAudioEntries()`, `deleteAudioEntry(id)`
+- [x] `features/audio/types.ts` — `AudioEntryOut` interface
+- [x] `features/audio/hooks/useAudio.ts` — `useAudioEntries()` (TanStack Query, stale 60s), `useDeleteAudio()` mutation
+- [x] `features/audio/components/AudioCard.tsx` — shows title, date; HTML5 `<audio>` player with signed URL; delete button (inline confirm)
+- [x] `features/audio/components/AudioLibrary.tsx` — grid of `AudioCard`s; loading skeleton; empty state
+- [x] `app/(dashboard)/audio/page.tsx` — page route, guarded by auth
+- [x] Nav link in `ChatWindow.tsx` header (`<Headphones />` icon → `/audio`)
+- [x] `lib/api.ts` — `listAudioEntries()`, `deleteAudioEntry(id)`
 
 ### 10D-6 — Verification
 
