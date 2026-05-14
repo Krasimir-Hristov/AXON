@@ -14,6 +14,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from app.core.config import settings
 from app.core.limiter import limiter
 from app.features.auth.router import router as auth_router
+from app.features.audio.router import router as audio_router
 from app.features.chat.router import router as chat_router
 from app.features.memory.router import router as memory_router
 from app.features.models.router import router as models_router
@@ -71,6 +72,7 @@ app.include_router(models_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(memory_router, prefix="/api/v1")
 app.include_router(youtube_router, prefix="/api/v1")
+app.include_router(audio_router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health", tags=["health"])

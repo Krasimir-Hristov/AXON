@@ -1,13 +1,16 @@
-"""Generate-TTS LangGraph node (Phase 10C).
+"""Generate-TTS and Save-Audio LangGraph nodes (Phase 10C + 10D).
 
-Called by the orchestrator when the supervisor emits a ``generate_tts``
-tool_call.  Synthesizes the requested text via OpenRouter TTS, uploads the
-resulting mp3 to Supabase Storage, stores the result in ``state["pending_audio"]``
-for the cross-turn save confirmation (Phase 10D), and returns a ToolMessage with
-a markdown link the supervisor can present to the user.
+generate_tts_node  — synthesizes text to speech via OpenRouter TTS, uploads the
+                     mp3 to Supabase Storage, stores the result in
+                     ``state["pending_audio"]`` for the cross-turn save
+                     confirmation, and returns a ToolMessage with a markdown link.
 
-The node body is never called via LangChain tool execution — it is invoked
-directly by the orchestrator graph (same pattern as save_transcript_node).
+save_audio_entry_node — reads ``state["pending_audio"]``, persists the audio
+                        entry to ``audio_entries``, and returns a ToolMessage
+                        confirming the save.
+
+Neither node is called via LangChain tool execution — both are invoked directly
+by the orchestrator graph (same pattern as save_transcript_node).
 """
 
 import json
@@ -95,3 +98,86 @@ async def generate_tts_node(state: AxonState) -> dict:
         messages.append(ToolMessage(content=result_msg, tool_call_id=tool_call_id))
 
     return {"messages": messages, "pending_audio": pending_audio_json}
+
+
+# ---------------------------------------------------------------------------
+# Save-audio-entry node (Phase 10D)
+# ---------------------------------------------------------------------------
+
+SAVE_AUDIO_TOOL_NAME = "save_audio_entry"
+
+
+async def save_audio_entry_node(state: AxonState) -> dict:
+    """LangGraph node: persist the pending audio entry to audio_entries.
+
+    Reads ``state["pending_audio"]`` (set by generate_tts_node) and
+    ``state["user_id"]``, calls the audio service, and returns a ToolMessage
+    that closes the open ``save_audio_entry`` tool_call.
+    """
+    # -- Resolve tool_call_id -----------------------------------------------
+    tool_call_id: str | None = None
+    title: str = ""
+
+    last_msg = state["messages"][-1] if state["messages"] else None
+    if isinstance(last_msg, AIMessage) and last_msg.tool_calls:
+        for tc in last_msg.tool_calls:
+            if tc["name"] == SAVE_AUDIO_TOOL_NAME:
+                tool_call_id = tc["id"]
+                title = tc.get("args", {}).get("title", "")
+                break
+
+    def _error(msg: str) -> dict:
+        messages = []
+        if tool_call_id:
+            messages.append(ToolMessage(content=msg, tool_call_id=tool_call_id))
+        return {"messages": messages}
+
+    # -- Validate pending_audio ---------------------------------------------
+    pending_audio = state.get("pending_audio", "")
+    if not pending_audio:
+        logger.warning("[save_audio_entry_node] pending_audio is empty")
+        return _error(
+            "No audio data found to save. "
+            "Please generate audio first before asking me to save it."
+        )
+
+    try:
+        pending = json.loads(pending_audio)
+    except json.JSONDecodeError:
+        logger.exception("[save_audio_entry_node] pending_audio is not valid JSON")
+        return _error("Failed to parse audio data — please try generating audio again.")
+
+    filename: str = pending.get("filename", "")
+    if not filename:
+        return _error("Audio data is missing the filename — please try again.")
+
+    # Fall back to text_preview if no title was provided.
+    if not title:
+        title = pending.get("text_preview", "Audio")[:80]
+
+    user_id: str = state["user_id"]
+
+    # -- Persist ------------------------------------------------------------
+    try:
+        saved = await audio_service.save_audio_entry(
+            user_id=user_id,
+            filename=filename,
+            title=title,
+            source_type="custom",
+        )
+    except RuntimeError as exc:
+        logger.error("[save_audio_entry_node] service error: %s", exc)
+        return _error(f"Failed to save audio: {exc}")
+    except Exception:
+        logger.exception("[save_audio_entry_node] unexpected error")
+        return _error("An unexpected error occurred while saving the audio.")
+
+    result_msg = f"Audio saved to your library ✓ — **{saved.title}**"
+    logger.info("[save_audio_entry_node] saved id=%s", saved.id)
+
+    messages = []
+    if tool_call_id:
+        messages.append(ToolMessage(content=result_msg, tool_call_id=tool_call_id))
+
+    # Clear pending_audio from state after successful save.
+    return {"messages": messages, "pending_audio": ""}

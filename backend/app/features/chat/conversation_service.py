@@ -189,6 +189,57 @@ async def update_conversation_youtube_context(
         )
 
 
+async def get_conversation_pending_audio(
+    conversation_id: str,
+    user_id: str,
+) -> str:
+    """Return the persisted pending_audio for a conversation, or '' if none."""
+    client = await get_supabase_client()
+    try:
+        result = (
+            await client.table("conversations")
+            .select("pending_audio")
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception(
+            "get_conversation_pending_audio: query failed conversation_id=%s",
+            conversation_id,
+        )
+        return ""
+    rows = cast(list[dict[str, Any]], result.data or [])
+    return str(rows[0].get("pending_audio") or "") if rows else ""
+
+
+async def update_conversation_pending_audio(
+    conversation_id: str,
+    user_id: str,
+    pending_audio: str,
+) -> None:
+    """Persist the pending_audio payload on the conversation row.
+
+    Non-fatal: a failure is logged but does not raise so the main stream
+    continues uninterrupted.
+    """
+    client = await get_supabase_client()
+    try:
+        await (
+            client.table("conversations")
+            .update({"pending_audio": pending_audio})
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        logger.exception(
+            "update_conversation_pending_audio: update failed conversation_id=%s",
+            conversation_id,
+        )
+
+
 async def list_conversations(user_id: str, limit: int = 50) -> list[ConversationOut]:
     """Return conversations for a user, ordered by most recent activity first."""
     client = await get_supabase_client()

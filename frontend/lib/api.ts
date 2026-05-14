@@ -5,6 +5,7 @@ import type {
   MessageOut,
   SSEEvent,
 } from '@/features/chat/types';
+import type { AudioEntryOut } from '@/features/audio/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
@@ -229,4 +230,14 @@ export function updateConversationTitle(
       body: JSON.stringify({ title }),
     },
   );
+}
+
+export function listAudioEntries(): Promise<AudioEntryOut[]> {
+  return apiFetch<AudioEntryOut[]>('/api/v1/audio');
+}
+
+export function deleteAudioEntry(id: string): Promise<void> {
+  return apiFetchVoid(`/api/v1/audio/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
 }

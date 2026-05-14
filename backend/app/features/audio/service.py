@@ -1,4 +1,4 @@
-"""TTS generation + Supabase Storage upload service (Phase 10C).
+"""TTS generation + Supabase Storage upload + Audio Library service.
 
 Uses OpenRouter's /audio/speech endpoint (openai/gpt-4o-mini-tts-2025-12-15).
 The existing openrouter_api_key is reused — no separate OpenAI key needed.
@@ -10,16 +10,27 @@ generate_tts(text, user_id) -> tuple[bytes, str]
 
 upload_audio(audio_bytes, filename) -> str
     Upload mp3 bytes to Supabase Storage and return a signed URL (1 week).
+
+save_audio_entry(user_id, filename, title, source_type, source_id) -> AudioEntryOut
+    Persist a saved audio entry to the audio_entries table.
+
+list_audio_entries(user_id) -> list[AudioEntryOut]
+    Return all saved audio entries for a user with fresh signed URLs.
+
+delete_audio_entry(id, user_id) -> bool
+    Delete an audio entry from the DB and its file from Storage.
 """
 
 import logging
-from uuid import uuid4
+from uuid import UUID, uuid4
+from typing import Any
 
 import httpx
 
 from app.core.config import settings
 from app.core.privacy import mask_pii
 from app.db.supabase import get_supabase_client
+from app.features.audio.schemas import AudioEntryOut
 
 logger = logging.getLogger(__name__)
 
@@ -152,3 +163,153 @@ async def upload_audio(audio_bytes: bytes, filename: str) -> str:
 
     logger.info("[upload_audio] signed URL created uuid=%s", safe_log_name)
     return signed_url
+
+
+# ---------------------------------------------------------------------------
+# Audio Library CRUD (Phase 10D)
+# ---------------------------------------------------------------------------
+
+_SELECT_COLS = "id, filename, title, source_type, source_id, duration_s, created_at"
+
+
+def _row_to_entry(row: dict[str, Any], signed_url: str) -> AudioEntryOut:
+    return AudioEntryOut(
+        id=row["id"],
+        filename=row["filename"],
+        title=row["title"],
+        source_type=row.get("source_type", "custom"),
+        source_id=row.get("source_id"),
+        duration_s=row.get("duration_s"),
+        created_at=row["created_at"],
+        signed_url=signed_url,
+    )
+
+
+async def save_audio_entry(
+    *,
+    user_id: str,
+    filename: str,
+    title: str,
+    source_type: str = "custom",
+    source_id: str | None = None,
+) -> AudioEntryOut:
+    """Persist a saved audio entry to the audio_entries table.
+
+    Raises RuntimeError on DB failure.
+    """
+    client = await get_supabase_client()
+
+    row_data: dict[str, Any] = {
+        "user_id": user_id,
+        "filename": filename,
+        "title": title,
+        "source_type": source_type,
+    }
+    if source_id:
+        row_data["source_id"] = source_id
+
+    try:
+        response = await client.table("audio_entries").insert(row_data).execute()
+    except Exception:
+        logger.exception("[save_audio_entry] INSERT failed user=%s", user_id[:8])
+        raise RuntimeError("Failed to save audio entry to database.")
+
+    if not response.data:
+        raise RuntimeError("INSERT returned no data.")
+
+    row = response.data[0]
+
+    # Generate a fresh signed URL for the returned entry.
+    safe_log_name = filename.split("/")[-1] if "/" in filename else filename
+    try:
+        result = await client.storage.from_(settings.audio_bucket).create_signed_url(
+            filename, _SIGNED_URL_TTL
+        )
+        signed_url: str = result["signedURL"]
+    except Exception:
+        logger.exception("[save_audio_entry] signed URL failed uuid=%s", safe_log_name)
+        raise RuntimeError("Entry saved but could not generate a signed URL.")
+
+    logger.info("[save_audio_entry] saved uuid=%s", safe_log_name)
+    return _row_to_entry(row, signed_url)
+
+
+async def list_audio_entries(user_id: str) -> list[AudioEntryOut]:
+    """Return all saved audio entries for a user with fresh signed URLs (1 week).
+
+    Ordered by created_at DESC.
+    """
+    client = await get_supabase_client()
+
+    try:
+        response = (
+            await client.table("audio_entries")
+            .select(_SELECT_COLS)
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception:
+        logger.exception("[list_audio_entries] SELECT failed user=%s", user_id[:8])
+        return []
+
+    entries: list[AudioEntryOut] = []
+    for row in response.data or []:
+        try:
+            result = await client.storage.from_(settings.audio_bucket).create_signed_url(
+                row["filename"], _SIGNED_URL_TTL
+            )
+            url: str = result["signedURL"]
+        except Exception:
+            safe = row["filename"].split("/")[-1] if "/" in row["filename"] else row["filename"]
+            logger.warning("[list_audio_entries] signed URL failed uuid=%s — skipping", safe)
+            continue
+        entries.append(_row_to_entry(row, url))
+
+    return entries
+
+
+async def delete_audio_entry(entry_id: UUID, user_id: str) -> bool:
+    """Delete audio entry from DB and its file from Supabase Storage.
+
+    Returns True if the entry was found and deleted, False otherwise.
+    """
+    client = await get_supabase_client()
+
+    # Fetch the row first to get the filename (needed for Storage deletion).
+    try:
+        fetch = (
+            await client.table("audio_entries")
+            .select("id, filename")
+            .eq("id", str(entry_id))
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:
+        logger.exception("[delete_audio_entry] SELECT failed id=%s", entry_id)
+        return False
+
+    if not fetch.data:
+        return False
+
+    filename: str = fetch.data[0]["filename"]
+    safe_log_name = filename.split("/")[-1] if "/" in filename else filename
+
+    # Delete from DB first.
+    try:
+        await client.table("audio_entries").delete().eq("id", str(entry_id)).eq("user_id", user_id).execute()
+    except Exception:
+        logger.exception("[delete_audio_entry] DELETE failed id=%s", entry_id)
+        return False
+
+    # Best-effort Storage deletion — log failure but do not fail the request.
+    try:
+        await client.storage.from_(settings.audio_bucket).remove([filename])
+        logger.info("[delete_audio_entry] deleted uuid=%s", safe_log_name)
+    except Exception:
+        logger.warning(
+            "[delete_audio_entry] Storage remove failed uuid=%s — DB row deleted",
+            safe_log_name,
+        )
+
+    return True
