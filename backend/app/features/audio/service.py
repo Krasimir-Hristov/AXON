@@ -104,7 +104,11 @@ async def generate_tts(text: str, user_id: str) -> tuple[bytes, str]:
     # Validate the response is non-empty and looks like an MP3 before uploading.
     content_type = response.headers.get("content-type", "")
     mp3_magic = audio_bytes[:3] if len(audio_bytes) >= 3 else b""
-    is_mp3_magic = mp3_magic == b"ID3" or (len(audio_bytes) >= 2 and audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0)
+    is_mp3_magic = mp3_magic == b"ID3" or (
+        len(audio_bytes) >= 2
+        and audio_bytes[0] == 0xFF
+        and (audio_bytes[1] & 0xE0) == 0xE0
+    )
     if not audio_bytes or (not content_type.startswith("audio/") and not is_mp3_magic):
         logger.error(
             "[generate_tts] unexpected TTS response status=%d content-type=%s bytes=%d",
@@ -160,7 +164,9 @@ async def upload_audio(audio_bytes: bytes, filename: str) -> str:
         logger.exception(
             "[upload_audio] Failed to create signed URL uuid=%s", safe_log_name
         )
-        raise RuntimeError("Audio uploaded but could not generate a signed URL.") from exc
+        raise RuntimeError(
+            "Audio uploaded but could not generate a signed URL."
+        ) from exc
 
     logger.info("[upload_audio] signed URL created uuid=%s", safe_log_name)
     return signed_url
@@ -261,13 +267,19 @@ async def list_audio_entries(user_id: str) -> list[AudioEntryOut]:
     # Sign all URLs concurrently instead of sequentially.
     async def _sign_row(row: dict[str, Any]) -> tuple[dict[str, Any], str] | None:
         try:
-            result = await client.storage.from_(settings.audio_bucket).create_signed_url(
-                row["filename"], _SIGNED_URL_TTL
-            )
+            result = await client.storage.from_(
+                settings.audio_bucket
+            ).create_signed_url(row["filename"], _SIGNED_URL_TTL)
             return row, result["signedURL"]
         except Exception:
-            safe = row["filename"].split("/")[-1] if "/" in row["filename"] else row["filename"]
-            logger.warning("[list_audio_entries] signed URL failed uuid=%s — skipping", safe)
+            safe = (
+                row["filename"].split("/")[-1]
+                if "/" in row["filename"]
+                else row["filename"]
+            )
+            logger.warning(
+                "[list_audio_entries] signed URL failed uuid=%s — skipping", safe
+            )
             return None
 
     results = await asyncio.gather(*(_sign_row(row) for row in rows))
@@ -316,7 +328,13 @@ async def delete_audio_entry(entry_id: UUID, user_id: str) -> bool:
 
     # Only remove the DB row after successful Storage deletion.
     try:
-        await client.table("audio_entries").delete().eq("id", str(entry_id)).eq("user_id", user_id).execute()
+        await (
+            client.table("audio_entries")
+            .delete()
+            .eq("id", str(entry_id))
+            .eq("user_id", user_id)
+            .execute()
+        )
     except Exception:
         logger.exception(
             "[delete_audio_entry] DB DELETE failed after storage removal id=%s uuid=%s",
