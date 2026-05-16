@@ -548,6 +548,146 @@ User: "yes"
 
 ---
 
+## PHASE 11 — Deep Search Agent
+
+> **Architecture decision log:**
+>
+> - **Search provider:** Tavily API — purpose-built for LLM/agent workflows; `search_depth="advanced"` returns full page content (not just snippets), structured results, and optionally a pre-generated answer. Free tier: 1 000 searches/month. Uses its own `TAVILY_API_KEY` — existing `OPENROUTER_API_KEY` unchanged.
+> - **Agent pattern:** Same supervisor handoff as YouTube — `transfer_to_deepsearch_agent` → `deepsearch_agent_node` → supervisor. No new graph topology needed.
+> - **Save flow:** After presenting results, supervisor asks "Want to save this research?" → user confirms → `save_deep_search` tool node → INSERT into `deep_searches` table + embed `query + summary` → INSERT into `memory_entries` (so memory_agent can recall it in future conversations).
+> - **Delete:** Must remove from BOTH `deep_searches` table AND the corresponding `memory_entries` row. `memory_entry_id` FK stored directly in the row (cleaner than pattern-matching).
+> - **Edit:** `title` change — free (no re-embed). `summary` change — re-embed → update `memory_entries.embedding` in place.
+
+### Overall flow
+
+```text
+User: "deep search quantum computing breakthroughs 2025"
+  → supervisor detects research intent → calls transfer_to_deepsearch_agent
+  → deepsearch_agent:
+      1. Extract query from last HumanMessage
+      2. TavilyClient.search(query, search_depth="advanced", max_results=10) via asyncio.to_thread
+      3. Build synthesis context (each result capped at 2000 chars, total 20 000)
+      4. LLM call → synthesize summary + key_findings: list[str]
+      5. Build sources: [{title, url, snippet: content[:300]}]
+      6. Store JSON in state["deepsearch_context"]; return ToolMessage
+  → supervisor: presents summary + key findings + numbered source list
+                asks "Want me to save this research?"
+
+User: "yes"
+  → supervisor calls save_deep_search()
+  → save_deep_search node:
+      INSERT deep_searches; embed(query + "\n\n" + summary) → INSERT memory_entries
+      UPDATE deep_searches.memory_entry_id = <new_id>
+  → supervisor: "Research saved ✓ — also indexed in your memory for future recall"
+
+User later: "what did I find about quantum computing?"
+  → memory_agent → vector search → returns saved summary
+```
+
+---
+
+### 11A — Dependencies + Config
+
+- [ ] `uv add tavily-python` — official Tavily Python client
+- [ ] `app/core/config.py`: add `tavily_api_key: str` + `deepsearch_model: str = "google/gemini-2.5-flash"` + `deepsearch_max_results: int = 10`
+- [ ] `backend/.env.example`: add `TAVILY_API_KEY=`
+
+### 11B — Database (`supabase/migrations/`)
+
+- [ ] New migration: create `deep_searches` table:
+  ```sql
+  CREATE TABLE public.deep_searches (
+      id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id          UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      query            TEXT        NOT NULL,
+      title            TEXT        NOT NULL,          -- editable; defaults to query
+      summary          TEXT        NOT NULL,          -- AI-synthesized answer
+      key_findings     JSONB       NOT NULL DEFAULT '[]', -- string[]
+      sources          JSONB       NOT NULL DEFAULT '[]', -- [{title, url, snippet}]
+      memory_entry_id  UUID        REFERENCES memory_entries(id) ON DELETE SET NULL,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX deep_searches_user_created_idx
+      ON public.deep_searches (user_id, created_at DESC);
+  ```
+- [ ] RLS: `user_id = (select auth.uid())` on SELECT / INSERT / DELETE / UPDATE — subquery form (same pattern as all other tables)
+- [ ] `memory_entry_id ON DELETE SET NULL` — deep search row survives if memory entry is independently cleaned up
+
+### 11C — Backend feature layer (`app/features/deepsearch/`)
+
+- [ ] `__init__.py`
+- [ ] `schemas.py`: `SourceItem(title, url, snippet)` · `DeepSearchOut(id, query, title, summary, key_findings, sources, created_at)` · `DeepSearchPatch(title?, summary?)` with `model_validator` requiring at least one field
+- [ ] `service.py`:
+  - `save_deep_search(user_id, payload: dict) -> DeepSearchOut` — INSERT row; embed `f"{query}\n\n{summary}"` → INSERT `memory_entries`; UPDATE row with returned `memory_entry_id`
+  - `list_deep_searches(user_id, limit=50, offset=0) -> list[DeepSearchOut]` — ordered by `created_at DESC`
+  - `get_deep_search(id, user_id) -> DeepSearchOut | None`
+  - `delete_deep_search(id, user_id) -> bool` — fetch `memory_entry_id` → `delete_memory()` if set → DELETE row
+  - `update_deep_search(id, user_id, patch) -> DeepSearchOut | None` — if `summary` changed: re-embed → update `memory_entries.embedding`; UPDATE row
+- [ ] `router.py`:
+  - `GET    /api/v1/deepsearch` — list paginated; `@limiter.limit("60/minute")`
+  - `GET    /api/v1/deepsearch/{id}` — single; `@limiter.limit("60/minute")`
+  - `DELETE /api/v1/deepsearch/{id}` — 204; `@limiter.limit("30/minute")`
+  - `PATCH  /api/v1/deepsearch/{id}` — edit title/summary; `@limiter.limit("30/minute")`
+
+### 11D — Agent subagent (`app/agents/subagents/deepsearch_agent.py`)
+
+- [ ] `deepsearch_agent_node(state: AxonState) -> dict`:
+  1. Extract query from last `HumanMessage` (strip intent phrases: "deep search", "research", "find out about")
+  2. `asyncio.to_thread(TavilyClient(api_key=settings.tavily_api_key).search, query, search_depth="advanced", max_results=settings.deepsearch_max_results)`
+  3. Build synthesis context: each result capped at 2 000 chars; total cap 20 000 chars
+  4. LLM call (`settings.deepsearch_model` via OpenRouter) → `summary` + `key_findings: list[str]`
+  5. Build `sources`: `[{title, url, snippet: content[:300]}]`
+  6. Validate with Pydantic `DeepSearchPayload`; fallback to raw concat on parse error
+  7. Store JSON in `state["deepsearch_context"]`; return ToolMessage closing handoff tool call
+- [ ] Error handling: `TavilyAPIError` / network errors → descriptive error ToolMessage; never expose raw API errors
+
+### 11E — Save tool (`app/features/deepsearch/tool.py`)
+
+- [ ] `save_deep_search_node(state: AxonState) -> dict` — LangGraph node (same pattern as `save_transcript_node`):
+  - Read + parse `state["deepsearch_context"]`; validate required fields
+  - Call `deepsearch_service.save_deep_search(user_id, payload)`
+  - Return confirmation ToolMessage; clear `state["deepsearch_context"]`
+- [ ] `save_deep_search` stub `@tool` (body never executes)
+
+### 11F — State + Supervisor + Orchestrator wiring
+
+- [ ] `app/agents/state.py`: add `deepsearch_context: str` (empty string default)
+- [ ] `app/agents/supervisor.py`:
+  - Add `transfer_to_deepsearch_agent` + `save_deep_search` stubs to `bind_tools`
+  - System prompt: trigger phrases → `transfer_to_deepsearch_agent`; after ToolMessage present summary + ask to save; on confirmation call `save_deep_search`; do NOT re-call agent if `deepsearch_context` already populated
+- [ ] `app/agents/orchestrator.py`: add `deepsearch_agent` node + `save_deep_search_node`; extend `_should_continue` routing; add edge `deepsearch_agent → supervisor`
+- [ ] Mount deepsearch router in `app/main.py`
+
+### 11G — Frontend Deep Search Library (`features/deepsearch/`)
+
+- [ ] `features/deepsearch/types.ts` — `SourceItem`, `DeepSearchOut`
+- [ ] `features/deepsearch/hooks/useDeepSearch.ts` — `useDeepSearches()` (user-scoped key `['deep-searches', userId]`) · `useDeleteDeepSearch()` · `useUpdateDeepSearch()` (optimistic title)
+- [ ] `features/deepsearch/components/DeepSearchCard.tsx`:
+  - Inline-editable title (`useOptimistic` — same pattern as `AudioCard`)
+  - Summary: `line-clamp-4` + expand/collapse (same pattern as `VideoTranscriptCard`)
+  - Summary edit mode: click → textarea → Save/Cancel → `useUpdateDeepSearch` (re-embed server-side on summary change)
+  - Key findings: bullet list, first 4 visible + expand
+  - Sources: collapsed accordion ("N sources") → numbered `<a target="_blank">` links
+  - Delete dialog: warns that the linked memory entry will also be removed
+- [ ] `features/deepsearch/components/DeepSearchLibrary.tsx` — grid, skeleton, empty state
+- [ ] `app/(dashboard)/deepsearch/page.tsx` — back-to-chat header
+- [ ] `features/chat/components/ChatWindow.tsx` — add `Search` icon link to `/deepsearch` in toolbar
+- [ ] `lib/api.ts`: `listDeepSearches()` · `deleteDeepSearch(id)` (Zod UUID) · `updateDeepSearch(id, patch)` (Zod: title max 200, summary max 10 000, at least one field)
+
+### 11H — Verification
+
+- [ ] "deep search latest AI models 2025" → deepsearch_agent calls Tavily → summary + key findings + sources in chat
+- [ ] "yes save it" → `save_deep_search` called → entry visible in `GET /api/v1/deepsearch`
+- [ ] `/deepsearch` page → cards with summary, findings, collapsible source links
+- [ ] Edit title → optimistic update → persisted
+- [ ] Edit summary → `PATCH` → re-embed triggered → memory_agent finds updated content in future chat
+- [ ] Delete → row removed from `deep_searches` + `memory_entries` → UI updates
+- [ ] Future chat "what did I research?" → memory_agent returns saved summary
+- [ ] Tavily 429/down → graceful error message, no crash
+- [ ] `PATCH` with empty body → 422
+
+---
+
 ## End-to-End Verification Checklist
 
 - [ ] Google OAuth → JWT validated on `/api/v1/auth/me` → 200
