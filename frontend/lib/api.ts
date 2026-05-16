@@ -236,6 +236,16 @@ export function listAudioEntries(): Promise<AudioEntryOut[]> {
   return apiFetch<AudioEntryOut[]>('/api/v1/audio');
 }
 
+export function renameAudioEntry(
+  id: string,
+  title: string,
+): Promise<AudioEntryOut> {
+  return apiFetch<AudioEntryOut>(`/api/v1/audio/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  });
+}
+
 export function deleteAudioEntry(id: string): Promise<void> {
   return apiFetchVoid(`/api/v1/audio/${encodeURIComponent(id)}`, {
     method: 'DELETE',
