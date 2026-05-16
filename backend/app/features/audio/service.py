@@ -393,6 +393,3 @@ async def delete_audio_entry(entry_id: UUID, user_id: str) -> bool:
 
     logger.info("[delete_audio_entry] deleted uuid=%s", safe_log_name)
     return True
-
-
-
