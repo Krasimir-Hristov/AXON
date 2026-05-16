@@ -10,6 +10,7 @@ from app.core.limiter import limiter
 from app.core.security import get_current_user
 from app.features.auth.schemas import UserSchema
 from app.features.audio import service
+from app.features.audio.rename import rename_audio_entry as _rename_audio_entry
 from app.features.audio.schemas import AudioEntryOut, AudioEntryPatch
 
 logger = logging.getLogger(__name__)
@@ -17,14 +18,15 @@ router = APIRouter(prefix="/audio", tags=["audio"])
 
 
 @router.get("/temp/{token}")
-async def serve_temp_audio(token: str) -> Response:
+@limiter.limit("30/minute")
+async def serve_temp_audio(token: UUID, request: Request) -> Response:
     """Serve a temporarily stored mp3 before the user confirms saving.
 
     No JWT auth — the UUID token itself acts as a short-lived capability URL
     (unguessable, 1-hour TTL).  The browser <audio> element cannot send custom
     headers, so cookie / bearer auth is not applicable here.
     """
-    audio_bytes = service.retrieve_temp_audio(token)
+    audio_bytes = await service.retrieve_temp_audio(str(token))
     if audio_bytes is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -68,7 +70,7 @@ async def rename_audio_entry_endpoint(
     current_user: UserSchema = Depends(get_current_user),
 ) -> AudioEntryOut:
     """Rename a saved audio entry's title."""
-    updated = await service.rename_audio_entry(entry_id, current_user.id, body.title)
+    updated = await _rename_audio_entry(entry_id, current_user.id, body.title)
     if updated is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

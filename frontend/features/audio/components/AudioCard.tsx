@@ -157,7 +157,7 @@ const AudioCard = ({ entry }: AudioCardProps) => {
         <DialogPopup>
           <DialogTitle>Delete audio?</DialogTitle>
           <DialogDescription>
-            This will permanently delete &ldquo;{entry.title}&rdquo; from your
+            This will permanently delete &ldquo;{optimisticTitle}&rdquo; from your
             library and remove the file from storage. This action cannot be
             undone.
           </DialogDescription>

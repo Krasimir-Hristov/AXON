@@ -64,29 +64,33 @@ _TEMP_PREFIX = "axon_audio_"
 _TEMP_TTL = 3600  # 1 hour
 
 
-def store_temp_audio(audio_bytes: bytes) -> str:
+async def store_temp_audio(audio_bytes: bytes) -> str:
     """Write mp3 bytes to a temp file and return a UUID token."""
     token = str(uuid4())
     path = _TEMP_DIR / f"{_TEMP_PREFIX}{token}.mp3"
-    path.write_bytes(audio_bytes)
+    await asyncio.to_thread(path.write_bytes, audio_bytes)
     return token
 
 
-def retrieve_temp_audio(token: str) -> bytes | None:
+async def retrieve_temp_audio(token: str) -> bytes | None:
     """Return mp3 bytes for the given token, or None if missing / expired."""
     path = _TEMP_DIR / f"{_TEMP_PREFIX}{token}.mp3"
-    if not path.exists():
-        return None
-    if time.time() - path.stat().st_mtime > _TEMP_TTL:
-        path.unlink(missing_ok=True)
-        return None
-    return path.read_bytes()
+
+    def _read() -> bytes | None:
+        if not path.exists():
+            return None
+        if time.time() - path.stat().st_mtime > _TEMP_TTL:
+            path.unlink(missing_ok=True)
+            return None
+        return path.read_bytes()
+
+    return await asyncio.to_thread(_read)
 
 
-def delete_temp_audio(token: str) -> None:
+async def delete_temp_audio(token: str) -> None:
     """Delete the temp file after a successful Storage upload."""
     path = _TEMP_DIR / f"{_TEMP_PREFIX}{token}.mp3"
-    path.unlink(missing_ok=True)
+    await asyncio.to_thread(lambda: path.unlink(missing_ok=True))
 
 
 async def generate_tts(text: str, user_id: str) -> tuple[bytes, str]:
@@ -391,60 +395,4 @@ async def delete_audio_entry(entry_id: UUID, user_id: str) -> bool:
     return True
 
 
-async def rename_audio_entry(
-    entry_id: UUID, user_id: str, title: str
-) -> AudioEntryOut | None:
-    """Rename an audio entry's title.
 
-    Returns the updated AudioEntryOut, or None if the entry was not found.
-    Raises RuntimeError on DB or Storage failure.
-    """
-    client = await get_supabase_client()
-
-    # UPDATE — postgrest-py's FilterRequestBuilder has no .select() after .eq(),
-    # so we do the update and re-fetch in a separate query.
-    try:
-        await (
-            client.table("audio_entries")
-            .update({"title": title})
-            .eq("id", str(entry_id))
-            .eq("user_id", user_id)
-            .execute()
-        )
-    except Exception:
-        logger.exception("[rename_audio_entry] UPDATE failed id=%s", entry_id)
-        raise RuntimeError("Failed to rename audio entry.") from None
-
-    # Re-fetch the updated row (also confirms the entry belongs to this user).
-    try:
-        fetch = (
-            await client.table("audio_entries")
-            .select(_SELECT_COLS)
-            .eq("id", str(entry_id))
-            .eq("user_id", user_id)
-            .execute()
-        )
-    except Exception:
-        logger.exception(
-            "[rename_audio_entry] SELECT after UPDATE failed id=%s", entry_id
-        )
-        raise RuntimeError("Failed to fetch renamed audio entry.") from None
-
-    if not fetch.data:
-        return None
-
-    row = fetch.data[0]
-    filename: str = row["filename"]
-    safe_log = filename.split("/")[-1] if "/" in filename else filename
-
-    try:
-        result = await client.storage.from_(settings.audio_bucket).create_signed_url(
-            filename, _SIGNED_URL_TTL
-        )
-        signed_url: str = result["signedURL"]
-    except Exception:
-        logger.exception("[rename_audio_entry] signed URL failed uuid=%s", safe_log)
-        raise RuntimeError("Title updated but failed to generate signed URL.") from None
-
-    logger.info("[rename_audio_entry] renamed uuid=%s", safe_log)
-    return _row_to_entry(row, signed_url)
