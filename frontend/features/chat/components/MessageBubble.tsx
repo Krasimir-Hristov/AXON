@@ -4,6 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Message } from '@/features/chat/types';
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+
 interface MessageBubbleProps {
   message: Message;
 }
@@ -61,11 +63,13 @@ const MessageBubble = ({ message }: MessageBubbleProps) => {
                     </code>
                   ),
                 a: ({ href, children }) =>
-                  href?.includes('.mp3') ? (
+                  href?.includes('.mp3') || href?.includes('/audio/temp/') ? (
                     <span className='mt-2 block'>
                       <audio
                         controls
-                        src={href}
+                        src={
+                          href?.startsWith('/') ? `${API_BASE}${href}` : href
+                        }
                         className='w-full max-w-sm rounded'
                         aria-label={
                           typeof children === 'string' ? children : 'Audio'
