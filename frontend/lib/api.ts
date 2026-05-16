@@ -250,10 +250,13 @@ export function renameAudioEntry(
     id,
     title,
   });
-  return apiFetch<AudioEntryOut>(`/api/v1/audio/${encodeURIComponent(validId)}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ title: validTitle }),
-  });
+  return apiFetch<AudioEntryOut>(
+    `/api/v1/audio/${encodeURIComponent(validId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ title: validTitle }),
+    },
+  );
 }
 
 export function deleteAudioEntry(id: string): Promise<void> {
