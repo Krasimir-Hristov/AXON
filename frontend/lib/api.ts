@@ -236,6 +236,25 @@ export function listAudioEntries(): Promise<AudioEntryOut[]> {
   return apiFetch<AudioEntryOut[]>('/api/v1/audio');
 }
 
+const _renameAudioSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1).max(200).trim(),
+});
+
+export function renameAudioEntry(
+  id: string,
+  title: string,
+): Promise<AudioEntryOut> {
+  const { id: validId, title: validTitle } = _renameAudioSchema.parse({
+    id,
+    title,
+  });
+  return apiFetch<AudioEntryOut>(`/api/v1/audio/${encodeURIComponent(validId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title: validTitle }),
+  });
+}
+
 export function deleteAudioEntry(id: string): Promise<void> {
   return apiFetchVoid(`/api/v1/audio/${encodeURIComponent(id)}`, {
     method: 'DELETE',

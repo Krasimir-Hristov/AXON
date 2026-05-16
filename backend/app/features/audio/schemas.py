@@ -14,6 +14,12 @@ class AudioGenerateResult(BaseModel):
     text_preview: str = Field(..., min_length=1, max_length=1024)
 
 
+class AudioEntryPatch(BaseModel):
+    """Request body for PATCH /audio/{id} — rename the entry title."""
+
+    title: str = Field(..., min_length=1, max_length=200)
+
+
 class AudioEntryOut(BaseModel):
     """A saved audio entry from the audio_entries table."""
 

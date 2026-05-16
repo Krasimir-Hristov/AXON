@@ -8,6 +8,16 @@ Public API
 generate_tts(text, user_id) -> tuple[bytes, str]
     Call OpenRouter TTS endpoint, return (mp3_bytes, storage_filename).
 
+store_temp_audio(audio_bytes) -> str
+    Write mp3 bytes to a system temp file and return a token (UUID).
+    TTL: 3600 s.  Survives uvicorn --reload (file system is persistent).
+
+retrieve_temp_audio(token) -> bytes | None
+    Return bytes for the given token, or None if missing / expired.
+
+delete_temp_audio(token) -> None
+    Remove an entry from the temp store (called after successful upload).
+
 upload_audio(audio_bytes, filename) -> str
     Upload mp3 bytes to Supabase Storage and return a signed URL (1 week).
 
@@ -23,13 +33,15 @@ delete_audio_entry(id, user_id) -> bool
 
 import asyncio
 import logging
+import tempfile
+import time
+from pathlib import Path
 from uuid import UUID, uuid4
 from typing import Any
 
 import httpx
 
 from app.core.config import settings
-from app.core.privacy import mask_pii
 from app.db.supabase import get_supabase_client
 from app.features.audio.schemas import AudioEntryOut
 
@@ -40,6 +52,45 @@ _MAX_TTS_CHARS = 4096
 
 # Signed URL expiry: 7 days in seconds.
 _SIGNED_URL_TTL = 7 * 24 * 60 * 60  # 604 800 s
+
+# ---------------------------------------------------------------------------
+# Temp audio store — bytes written to the system temp directory.
+# Survives uvicorn --reload (file system is persistent across restarts).
+# TTL enforced at retrieval time via file mtime.
+# ---------------------------------------------------------------------------
+
+_TEMP_DIR = Path(tempfile.gettempdir())
+_TEMP_PREFIX = "axon_audio_"
+_TEMP_TTL = 3600  # 1 hour
+
+
+async def store_temp_audio(audio_bytes: bytes) -> str:
+    """Write mp3 bytes to a temp file and return a UUID token."""
+    token = str(uuid4())
+    path = _TEMP_DIR / f"{_TEMP_PREFIX}{token}.mp3"
+    await asyncio.to_thread(path.write_bytes, audio_bytes)
+    return token
+
+
+async def retrieve_temp_audio(token: str) -> bytes | None:
+    """Return mp3 bytes for the given token, or None if missing / expired."""
+    path = _TEMP_DIR / f"{_TEMP_PREFIX}{token}.mp3"
+
+    def _read() -> bytes | None:
+        if not path.exists():
+            return None
+        if time.time() - path.stat().st_mtime > _TEMP_TTL:
+            path.unlink(missing_ok=True)
+            return None
+        return path.read_bytes()
+
+    return await asyncio.to_thread(_read)
+
+
+async def delete_temp_audio(token: str) -> None:
+    """Delete the temp file after a successful Storage upload."""
+    path = _TEMP_DIR / f"{_TEMP_PREFIX}{token}.mp3"
+    await asyncio.to_thread(lambda: path.unlink(missing_ok=True))
 
 
 async def generate_tts(text: str, user_id: str) -> tuple[bytes, str]:
@@ -66,13 +117,10 @@ async def generate_tts(text: str, user_id: str) -> tuple[bytes, str]:
     if not text.strip():
         raise RuntimeError("Cannot generate TTS for empty text.")
 
-    # Mask PII before forwarding text to the external TTS provider.
-    masked_text = await mask_pii(text)
-
     # OpenRouter /audio/speech endpoint — returns raw MP3 bytes (not JSON).
     payload = {
         "model": settings.tts_model,
-        "input": masked_text,
+        "input": text,
         "voice": settings.tts_voice,
         "response_format": "mp3",
     }
@@ -345,3 +393,6 @@ async def delete_audio_entry(entry_id: UUID, user_id: str) -> bool:
 
     logger.info("[delete_audio_entry] deleted uuid=%s", safe_log_name)
     return True
+
+
+
