@@ -6,6 +6,7 @@ import type {
   SSEEvent,
 } from '@/features/chat/types';
 import type { AudioEntryOut } from '@/features/audio/types';
+import type { VideoTranscriptOut } from '@/features/youtube/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
@@ -257,6 +258,21 @@ export function renameAudioEntry(
 
 export function deleteAudioEntry(id: string): Promise<void> {
   return apiFetchVoid(`/api/v1/audio/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function listVideoTranscripts(): Promise<VideoTranscriptOut[]> {
+  return apiFetch<VideoTranscriptOut[]>('/api/v1/youtube');
+}
+
+const _deleteTranscriptSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export function deleteVideoTranscript(id: string): Promise<void> {
+  const { id: validId } = _deleteTranscriptSchema.parse({ id });
+  return apiFetchVoid(`/api/v1/youtube/${encodeURIComponent(validId)}`, {
     method: 'DELETE',
   });
 }

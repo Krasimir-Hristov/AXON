@@ -12,6 +12,7 @@ import {
   Bookmark,
   Volume2,
   Headphones,
+  Video,
   Menu,
   X,
 } from 'lucide-react';
@@ -215,6 +216,14 @@ const ChatWindow = () => {
               title='Audio Library'
             >
               <Headphones className='h-4 w-4' />
+            </Link>
+            <Link
+              href='/youtube'
+              className='inline-flex h-9 w-9 items-center justify-center rounded-md text-[#6b6b8a] transition-colors hover:bg-[#2a2a3d] hover:text-[#e4e1ed]'
+              aria-label='YouTube Transcripts'
+              title='YouTube Transcripts'
+            >
+              <Video className='h-4 w-4' />
             </Link>
             <Button
               onClick={resetConversation}
