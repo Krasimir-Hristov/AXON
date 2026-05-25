@@ -179,16 +179,16 @@ BACKEND_URL=http://localhost:8000
 
 ## 📋 API Surface (selected)
 
-| Method | Path                         | Notes                       |
-| ------ | ---------------------------- | --------------------------- |
-| GET    | `/api/v1/health`             | Liveness, public            |
-| GET    | `/api/v1/auth/me`            | JWT-protected user info     |
-| GET    | `/api/v1/models`             | Cached OpenRouter catalogue |
-| POST   | `/api/v1/chat/stream`        | SSE stream from the agent   |
-| GET    | `/api/v1/chat/conversations` | List conversations          |
-| POST   | `/api/v1/memory` · `/search` | CRUD + semantic search      |
-| POST   | `/api/v1/memory/upload`      | Multipart file ingestion    |
-| GET    | `/api/v1/youtube`            | Saved video transcripts     |
+| Method | Path                         | Notes                           |
+| ------ | ---------------------------- | ------------------------------- |
+| GET    | `/api/v1/health`             | Liveness, public                |
+| GET    | `/api/v1/auth/me`            | JWT-protected user info         |
+| GET    | `/api/v1/models`             | Cached OpenRouter catalogue     |
+| POST   | `/api/v1/chat/stream`        | SSE stream from the agent       |
+| GET    | `/api/v1/chat/conversations` | List conversations              |
+| POST   | `/api/v1/memory` · `/search` | CRUD + semantic search          |
+| POST   | `/api/v1/memory/upload`      | Multipart file ingestion        |
+| GET    | `/api/v1/youtube`            | Saved YouTube video transcripts |
 
 See `backend/BACKEND.md` for the full reference.
 

@@ -616,13 +616,13 @@ User later: "what did I find about quantum computing?"
 ### 11C — Backend feature layer (`app/features/deepsearch/`)
 
 - [ ] `__init__.py`
-- [ ] `schemas.py`: `SourceItem(title, url, snippet)` · `DeepSearchOut(id, query, title, summary, key_findings, sources, created_at)` · `DeepSearchPatch(title?, summary?)` with `model_validator` requiring at least one field
+- [ ] `schemas.py`: `SourceItem(title, url, snippet)` · `DeepSearchOut(id, query, title, summary, key_findings, sources, created_at)` · `DeepSearchCreate(query, title: str = Field(..., max_length=200), summary: str = Field(..., max_length=10000), key_findings, sources)` · `DeepSearchPatch(title: str | None = Field(None, max_length=200), summary: str | None = Field(None, max_length=10000))` with `model_validator` requiring at least one field; service layer must accept these schemas for create/update so direct API calls cannot bypass the limits
 - [ ] `service.py`:
-  - `save_deep_search(user_id, payload: dict) -> DeepSearchOut` — INSERT row; embed `f"{query}\n\n{summary}"` → INSERT `memory_entries`; UPDATE row with returned `memory_entry_id`
+  - `save_deep_search(user_id, payload: dict) -> DeepSearchOut` — INSERT row; attempt embed `f"[Deep Search] {query}: {summary}"` → INSERT `memory_entries` → UPDATE row with `memory_entry_id`; if embedding or `memory_entries` INSERT fails, log the error with context (deep_search id, query, exception) and continue with `memory_entry_id = NULL` (non-fatal, same resilience pattern as YouTube)
   - `list_deep_searches(user_id, limit=50, offset=0) -> list[DeepSearchOut]` — ordered by `created_at DESC`
   - `get_deep_search(id, user_id) -> DeepSearchOut | None`
   - `delete_deep_search(id, user_id) -> bool` — fetch `memory_entry_id` → `delete_memory()` if set → DELETE row
-  - `update_deep_search(id, user_id, patch) -> DeepSearchOut | None` — if `summary` changed: re-embed → update `memory_entries.embedding`; UPDATE row
+  - `update_deep_search(id, user_id, patch) -> DeepSearchOut | None` — if `summary` changed: re-embed → update `memory_entries.embedding`; if `memory_entry_id` is NULL attempt to create a new memory entry and set it; if that fails log and keep the row updated without `memory_entry_id`; UPDATE row; all log messages must reference `update_deep_search` and include `memory_entry_id` context
 - [ ] `router.py`:
   - `GET    /api/v1/deepsearch` — list paginated; `@limiter.limit("60/minute")`
   - `GET    /api/v1/deepsearch/{id}` — single; `@limiter.limit("60/minute")`
@@ -639,7 +639,11 @@ User later: "what did I find about quantum computing?"
   5. Build `sources`: `[{title, url, snippet: content[:300]}]`
   6. Validate with Pydantic `DeepSearchPayload`; fallback to raw concat on parse error
   7. Store JSON in `state["deepsearch_context"]`; return ToolMessage closing handoff tool call
-- [ ] Error handling: `TavilyAPIError` / network errors → descriptive error ToolMessage; never expose raw API errors
+- [ ] Error handling:
+  - `TavilyAPIError` / network errors → log internally, return descriptive error ToolMessage; never expose raw API errors or tracebacks
+  - LLM synthesis call (`settings.deepsearch_model` via OpenRouter): wrap in `try/except`; catch timeouts, rate-limit errors, and HTTP errors; apply exponential backoff with 2 retries; on persistent failure return a descriptive error ToolMessage without raw exception details
+  - Malformed/unparseable LLM response (including `JSONDecodeError`): log internally; fall back to raw concatenation strategy (step 6) instead of crashing
+  - All internal exceptions must be logged with context (query, model) but must NOT be leaked to the returned ToolMessage
 
 ### 11E — Save tool (`app/features/deepsearch/tool.py`)
 
